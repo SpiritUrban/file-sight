@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.mypy_cache/
+
+# FileSight output
+filesight-report.json
+
+# Local test data
+test-images/
+
+# OS
+Thumbs.db
+.DS_Store
