@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from filesight.captioner import ImageCaptioner, load_image_for_captioning
-from filesight.models import FileEntry, FileError
+from filesight.models import FileEntry, FileError, SourceMetadata
 from filesight.naming import NameAllocator
 
 ProgressCallback = Callable[[int, int, FileEntry], None]
@@ -25,11 +25,17 @@ def process_file(
     caption: Optional[str] = None
     suggested: Optional[str] = None
     error: Optional[FileError] = None
+    metadata: Optional[SourceMetadata] = None
     status = "success"
     try:
         image = load_image_for_captioning(str(path))
         caption = captioner.caption(image)
         suggested = allocator.allocate(caption, path.suffix)
+        stat_result = path.stat()
+        metadata = SourceMetadata(
+            size_bytes=stat_result.st_size,
+            modified_at_ns=stat_result.st_mtime_ns,
+        )
     except KeyboardInterrupt:
         raise
     except Exception as exc:  # one broken file must not stop the scan
@@ -47,6 +53,7 @@ def process_file(
         suggested_name=suggested,
         processing_time_ms=elapsed_ms,
         error=error,
+        source_metadata=metadata,
     )
 
 

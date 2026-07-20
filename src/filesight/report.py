@@ -8,11 +8,53 @@ from pathlib import Path
 
 from filesight.models import (
     SCHEMA_VERSION,
+    SUPPORTED_SCHEMA_VERSIONS,
     FileEntry,
     ModelInfo,
     Report,
     Summary,
 )
+
+
+class ReportLoadError(Exception):
+    """The report file cannot be used at all (missing, broken, unsupported)."""
+
+
+def load_report_dict(report_path: Path) -> dict:
+    """Load and structurally check a scan report for validate/rename.
+
+    Raises ReportLoadError with a user-readable message on fatal problems.
+    """
+    if not report_path.exists():
+        raise ReportLoadError(f"Report file does not exist: {report_path}")
+    if not report_path.is_file():
+        raise ReportLoadError(f"Report path is not a file: {report_path}")
+    try:
+        # utf-8-sig: tolerate the BOM that Notepad/PowerShell add when
+        # the user edits the report by hand
+        raw = report_path.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise ReportLoadError(f"Cannot read report {report_path}: {exc}") from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ReportLoadError(f"Report is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ReportLoadError("Report root must be a JSON object.")
+    version = data.get("schema_version")
+    if version not in SUPPORTED_SCHEMA_VERSIONS:
+        supported = ", ".join(sorted(SUPPORTED_SCHEMA_VERSIONS))
+        raise ReportLoadError(
+            f"Unsupported schema_version {version!r} (supported: {supported}). "
+            "Re-run 'filesight scan' to generate a fresh report."
+        )
+    files = data.get("files")
+    if not isinstance(files, list):
+        raise ReportLoadError("Report has no 'files' list.")
+    for index, entry in enumerate(files):
+        if not isinstance(entry, dict):
+            raise ReportLoadError(f"Entry {index} in 'files' is not an object.")
+    return data
 
 
 def build_report(

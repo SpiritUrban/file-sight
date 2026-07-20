@@ -1,4 +1,17 @@
-"""FileSight command-line interface."""
+"""FileSight command-line interface.
+
+Exit codes (documented in README):
+  0   success
+  1   general error (e.g. report already exists, model failed to load)
+  2   invalid CLI arguments / path problems
+  3   report validation failed
+  4   rename failed, all changes rolled back
+  5   partially completed operation or incomplete rollback
+  6   undo error
+  130 interrupted by user (Ctrl+C)
+
+validate / rename / undo never import PyTorch or load the model.
+"""
 
 from __future__ import annotations
 
@@ -10,22 +23,30 @@ from typing import Optional
 import typer
 
 from filesight import __version__
-from filesight.models import FileEntry, ModelInfo
+from filesight.models import FileEntry, ModelInfo, ValidationIssue
 
 app = typer.Typer(
     add_completion=False,
-    help="FileSight: suggest readable file names for images using a local model.",
+    help="FileSight: suggest and safely apply readable image file names.",
 )
 
 DEFAULT_REPORT_NAME = "filesight-report.json"
 
+EXIT_GENERAL = 1
+EXIT_USAGE = 2
+EXIT_VALIDATION = 3
+EXIT_RENAME_FAILED = 4
+EXIT_PARTIAL = 5
+EXIT_UNDO = 6
+EXIT_INTERRUPTED = 130
+
 
 @app.callback()
 def _root() -> None:
-    """FileSight never renames or modifies your files; it only writes a report."""
+    """FileSight renames files only with explicit --apply and keeps a rollback log."""
 
 
-def _fail(message: str, exit_code: int = 1) -> None:
+def _fail(message: str, exit_code: int = EXIT_GENERAL) -> None:
     typer.echo(f"Error: {message}", err=True)
     raise typer.Exit(code=exit_code)
 
@@ -68,14 +89,15 @@ def scan(
 ) -> None:
     """Scan a folder, caption every supported image and write a JSON report.
 
-    Original files are never renamed or modified.
+    Original files are never renamed or modified by this command.
     """
     if language not in ("en", "uk"):
-        _fail(f"Unsupported language '{language}'. Use 'en' or 'uk'.", exit_code=2)
+        _fail(f"Unsupported language '{language}'. Use 'en' or 'uk'.", EXIT_USAGE)
     if not path.exists():
-        _fail(f"Folder does not exist: {path}", exit_code=2)
+        _fail(f"Folder does not exist: {path}", EXIT_USAGE)
     if not path.is_dir():
-        _fail(f"Not a folder: {path}", exit_code=2)
+        _fail(f"Not a folder: {path}", EXIT_USAGE)
+    path = path.resolve()  # store absolute paths so rename works from anywhere
 
     report_path = output if output is not None else path / DEFAULT_REPORT_NAME
     if report_path.exists() and not overwrite_report:
@@ -124,7 +146,7 @@ def scan(
             captioner.load()
             typer.echo("")
         except KeyboardInterrupt:
-            _fail("Interrupted while loading the model.", exit_code=130)
+            _fail("Interrupted while loading the model.", EXIT_INTERRUPTED)
         except Exception as exc:
             _fail(f"Could not load model '{captioner.model_name}': {exc}")
 
@@ -163,7 +185,275 @@ def scan(
     typer.echo(f"Report: {report_path}")
 
     if interrupted:
-        raise typer.Exit(code=130)
+        raise typer.Exit(code=EXIT_INTERRUPTED)
+
+
+def _load_plan(
+    report_path: Path,
+    resolve_conflicts: bool = False,
+    limit: Optional[int] = None,
+):
+    from filesight.rename_plan import build_plan
+    from filesight.report import ReportLoadError, load_report_dict
+
+    try:
+        report = load_report_dict(report_path)
+    except ReportLoadError as exc:
+        _fail(str(exc), EXIT_VALIDATION)
+    return build_plan(
+        report, report_path, resolve_conflicts=resolve_conflicts, limit=limit
+    )
+
+
+def _print_issues(issues: list[ValidationIssue]) -> None:
+    for issue in issues:
+        label = issue.code
+        where = f" (entry {issue.entry_index})" if issue.entry_index is not None else ""
+        typer.echo(f"[{label}]{where} {issue.message}")
+        if issue.path:
+            typer.echo(f"{' ' * (len(label) + 2)} {issue.path}")
+
+
+@app.command()
+def validate(
+    report: Path = typer.Argument(..., help="Path to the scan report JSON."),
+    strict: bool = typer.Option(
+        False, "--strict", help="Treat warnings as errors."
+    ),
+) -> None:
+    """Check that a report can be safely used for renaming. Changes nothing."""
+    plan = _load_plan(report)
+    errors = plan.errors
+    warnings = plan.warnings
+    failed = bool(errors) or (strict and bool(warnings))
+
+    if failed:
+        typer.echo("Validation failed")
+        typer.echo("")
+        _print_issues(errors)
+        if warnings:
+            typer.echo("")
+    if warnings:
+        for issue in warnings:
+            typer.echo(f"[warning] {issue.message}")
+        typer.echo("")
+    if not failed:
+        typer.echo("Report is valid")
+        typer.echo("")
+
+    conflict_codes = {"DUPLICATE_TARGET", "TARGET_ALREADY_EXISTS"}
+    typer.echo(f"Entries: {plan.entries_total}")
+    typer.echo(f"Ready to rename: {len(plan.renames)}")
+    typer.echo(f"Skipped: {len(plan.skipped)}")
+    typer.echo(f"Conflicts: {sum(1 for e in errors if e.code in conflict_codes)}")
+    typer.echo(f"Missing files: {sum(1 for e in errors if e.code == 'SOURCE_MISSING')}")
+
+    if failed:
+        raise typer.Exit(code=EXIT_VALIDATION)
+
+
+def _print_plan(plan) -> None:
+    typer.echo("Rename plan")
+    typer.echo("")
+    total = len(plan.items)
+    for position, item in enumerate(plan.items, start=1):
+        if item.action == "rename":
+            typer.echo(f"[{position}/{total}]")
+            typer.echo(f"FROM: {item.original_path}")
+            marker = "  (conflict resolved)" if item.conflict_resolved else ""
+            typer.echo(f"TO:   {item.final_path}{marker}")
+        else:
+            typer.echo(f"[{position}/{total}] SKIPPED")
+            typer.echo(f"FILE: {item.original_path}")
+            typer.echo(f"REASON: {item.skip_reason}")
+        typer.echo("")
+
+
+def _confirm_or_abort(yes: bool) -> None:
+    if yes:
+        return
+    if not sys.stdin.isatty():
+        _fail(
+            "Confirmation required but input is not interactive. "
+            "Pass --yes to confirm automatically.",
+            EXIT_USAGE,
+        )
+    try:
+        confirmed = typer.confirm("Continue?", default=False)
+    except (typer.Abort, EOFError):
+        confirmed = False
+    if not confirmed:
+        typer.echo("Aborted. No files were changed.")
+        raise typer.Exit(code=EXIT_GENERAL)
+
+
+def _check_dry_apply(dry_run: bool, apply: bool) -> bool:
+    """Returns True when this run must actually change files."""
+    if dry_run and apply:
+        _fail("--dry-run and --apply cannot be used together.", EXIT_USAGE)
+    return apply
+
+
+@app.command()
+def rename(
+    report: Path = typer.Argument(..., help="Path to the scan report JSON."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview only (this is also the default)."
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Actually rename files."
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", help="Skip the interactive confirmation (for scripts)."
+    ),
+    log: Optional[Path] = typer.Option(
+        None, "--log", help="Path of the rollback log (default: next to the report)."
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", min=1, help="Rename at most N eligible files (stable order)."
+    ),
+    resolve_conflicts: bool = typer.Option(
+        False,
+        "--resolve-conflicts",
+        help="Auto-number conflicting target names instead of failing.",
+    ),
+) -> None:
+    """Rename files according to a report. Dry-run by default; needs --apply."""
+    applying = _check_dry_apply(dry_run, apply)
+    plan = _load_plan(report, resolve_conflicts=resolve_conflicts, limit=limit)
+
+    if plan.errors:
+        typer.echo("Validation failed")
+        typer.echo("")
+        _print_issues(plan.errors)
+        typer.echo("")
+        typer.echo("No files were changed.")
+        raise typer.Exit(code=EXIT_VALIDATION)
+    for issue in plan.warnings:
+        typer.echo(f"[warning] {issue.message}")
+
+    _print_plan(plan)
+    if not plan.renames:
+        typer.echo("Nothing to rename.")
+        return
+
+    if not applying:
+        typer.echo("No files were changed.")
+        typer.echo("Run again with --apply to perform the operation.")
+        return
+
+    from filesight.renamer import perform_rename
+
+    typer.echo(f"{len(plan.renames)} file(s) will be renamed.")
+    typer.echo("A rollback log will be created.")
+    typer.echo("")
+    _confirm_or_abort(yes)
+
+    log_obj, log_path, result = perform_rename(plan, log)
+
+    typer.echo("")
+    if result.error is None:
+        typer.echo("Completed")
+        typer.echo(f"Renamed: {log_obj.summary.completed}")
+        typer.echo(f"Log: {log_path}")
+        typer.echo(f"Undo with: filesight undo \"{log_path}\" --apply")
+        return
+
+    typer.echo(f"Operation failed: {result.error}", err=True)
+    if result.all_restored:
+        typer.echo("All changes were rolled back; files are in their original state.")
+    else:
+        typer.echo("ROLLBACK INCOMPLETE — some files need manual attention:", err=True)
+        for op in log_obj.operations:
+            if op.status == "failed":
+                typer.echo(f"  {op.original_path}: {op.error}", err=True)
+    typer.echo(f"Log: {log_path}")
+    if result.interrupted:
+        raise typer.Exit(code=EXIT_INTERRUPTED)
+    raise typer.Exit(
+        code=EXIT_RENAME_FAILED if result.all_restored else EXIT_PARTIAL
+    )
+
+
+@app.command()
+def undo(
+    log: Path = typer.Argument(..., help="Path to a filesight rename log JSON."),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Preview only (this is also the default)."
+    ),
+    apply: bool = typer.Option(
+        False, "--apply", help="Actually restore original names."
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", help="Skip the interactive confirmation (for scripts)."
+    ),
+) -> None:
+    """Undo a completed rename operation using its log. Dry-run by default."""
+    applying = _check_dry_apply(dry_run, apply)
+
+    from filesight.operation_log import LogLoadError, load_log
+    from filesight.undo import build_undo_plan, perform_undo
+
+    try:
+        log_obj = load_log(log)
+    except LogLoadError as exc:
+        _fail(str(exc), EXIT_UNDO)
+
+    if log_obj.status == "undone":
+        typer.echo("This log was already undone. Nothing to do.")
+        return
+
+    plan = build_undo_plan(log_obj)
+    if plan.errors:
+        typer.echo("Undo is not possible:")
+        typer.echo("")
+        _print_issues(plan.errors)
+        typer.echo("")
+        typer.echo("No files were changed.")
+        raise typer.Exit(code=EXIT_UNDO)
+
+    typer.echo("Undo plan")
+    typer.echo("")
+    total = len(plan.ops)
+    for position, op in enumerate(plan.ops, start=1):
+        typer.echo(f"[{position}/{total}]")
+        typer.echo(f"FROM: {op.final_path}")
+        typer.echo(f"TO:   {op.original_path}")
+        typer.echo("")
+
+    if not applying:
+        typer.echo("No files were changed.")
+        typer.echo("Run again with --apply to perform the undo.")
+        return
+
+    typer.echo(f"{total} file(s) will be restored to their original names.")
+    typer.echo("")
+    _confirm_or_abort(yes)
+
+    result = perform_undo(log_obj, plan, log)
+
+    typer.echo("")
+    if result.error is None:
+        typer.echo("Undo completed")
+        typer.echo(f"Restored: {log_obj.summary.undone}")
+        typer.echo(f"Log updated: {log}")
+        return
+
+    typer.echo(f"Undo failed: {result.error}", err=True)
+    if result.all_restored and log_obj.status != "partially_undone":
+        typer.echo("No lasting changes: files remain under their renamed names.")
+        typer.echo(f"Log: {log}")
+        raise typer.Exit(
+            code=EXIT_INTERRUPTED if result.interrupted else EXIT_UNDO
+        )
+    typer.echo("UNDO INCOMPLETE — some files need manual attention:", err=True)
+    for op in log_obj.operations:
+        if op.status == "failed":
+            typer.echo(f"  {op.final_path}: {op.error}", err=True)
+    typer.echo(f"Log: {log}")
+    if result.interrupted:
+        raise typer.Exit(code=EXIT_INTERRUPTED)
+    raise typer.Exit(code=EXIT_PARTIAL)
 
 
 def main() -> None:
@@ -171,7 +461,7 @@ def main() -> None:
         app()
     except KeyboardInterrupt:
         typer.echo("\nInterrupted.", err=True)
-        sys.exit(130)
+        sys.exit(EXIT_INTERRUPTED)
 
 
 if __name__ == "__main__":
