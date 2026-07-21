@@ -64,6 +64,7 @@ export function SettingsDialog({
   onClose: () => void;
 }) {
   const client = useAppStore((s) => s.client);
+  const refreshEnvironment = useAppStore((s) => s.refreshEnvironment);
   const [settings, setSettings] = useState<AppSettings>(EMPTY);
   const [logDir, setLogDir] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<WorkerEnvironment | null>(null);
@@ -115,8 +116,12 @@ export function SettingsDialog({
             type="button"
             className="btn-primary"
             onClick={() => {
-              void saveAppSettings(settings);
-              onClose();
+              void (async () => {
+                await saveAppSettings(settings);
+                // Re-check so the status bar reflects the new paths at once.
+                await refreshEnvironment();
+                onClose();
+              })();
             }}
           >
             Save settings

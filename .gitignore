@@ -19,6 +19,12 @@ filesight-report.json
 # Local test data
 test-images/
 
+# A locally dropped FFmpeg build (auto-detected, must not be committed)
+ffmpeg/
+ffmpeg-*/
+ffmpeg.exe
+ffprobe.exe
+
 # Desktop (Tauri + React)
 desktop/node_modules/
 desktop/dist/

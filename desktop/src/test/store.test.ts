@@ -24,6 +24,8 @@ function freshStore(client = new MockWorkerClient()) {
     sortKey: "original_name",
     sortAsc: true,
     activeRequestId: null,
+    settings: null,
+    environment: null,
     options: { ...defaultScanOptions, directory: "C:\\Photos" },
     progress: {
       phase: "", currentFile: null, completed: 0, total: 0,
@@ -345,6 +347,54 @@ describe("validate, plan, rename and undo", () => {
     expect(state.dirty).toBe(true);
     expect(state.report!.files[0].suggested_name).toMatch(/^compact-/);
     expect(client.sent.some((s) => s.command === "scan" && s.payload.profile === "compact")).toBe(false);
+  });
+});
+
+describe("configured tool paths", () => {
+  it("sends the FFmpeg paths with every scan", async () => {
+    const client = freshStore();
+    useAppStore.setState({
+      settings: {
+        python_path: null,
+        ffmpeg_path: "C:\\tools\\ffmpeg.exe",
+        ffprobe_path: "C:\\tools\\ffprobe.exe",
+        config_path: "C:\\cfg\\filesight.toml",
+        default_profile: "default",
+        default_recursive: false,
+        default_include_videos: true,
+        report_filename: "filesight-report.json",
+        last_directory: null,
+        last_report_path: null,
+        last_log_path: null,
+        onboarding_seen: true,
+      },
+    });
+
+    await useAppStore.getState().startScan();
+    const scan = client.sent.find((s) => s.command === "scan");
+    // Without these the worker cannot find a manually configured FFmpeg
+    // and every video fails with FFMPEG_NOT_FOUND.
+    expect(scan?.payload.ffmpeg_path).toBe("C:\\tools\\ffmpeg.exe");
+    expect(scan?.payload.ffprobe_path).toBe("C:\\tools\\ffprobe.exe");
+    expect(scan?.payload.config).toBe("C:\\cfg\\filesight.toml");
+  });
+
+  it("sends nulls when nothing is configured", async () => {
+    const client = freshStore();
+    await useAppStore.getState().startScan();
+    const scan = client.sent.find((s) => s.command === "scan");
+    expect(scan?.payload.ffmpeg_path).toBeNull();
+    expect(scan?.payload.ffprobe_path).toBeNull();
+  });
+
+  it("re-checks the environment after settings change", async () => {
+    const client = freshStore();
+    await useAppStore.getState().bootstrap();
+    const before = client.sent.filter((s) => s.command === "get_environment").length;
+    await useAppStore.getState().refreshEnvironment();
+    const after = client.sent.filter((s) => s.command === "get_environment").length;
+    expect(after).toBe(before + 1);
+    expect(useAppStore.getState().environment).not.toBeNull();
   });
 });
 

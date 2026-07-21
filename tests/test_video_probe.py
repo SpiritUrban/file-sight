@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 
 import pytest
@@ -139,6 +140,8 @@ def test_probe_timeout(monkeypatch) -> None:
 
 
 def test_resolve_tools_missing(monkeypatch) -> None:
+    # also hide any FFmpeg unpacked into the project folder
+    monkeypatch.setattr(video_probe, "_candidate_roots", lambda: [])
     monkeypatch.setattr(video_probe.shutil, "which", lambda name: None)
     with pytest.raises(FFmpegNotFound):
         resolve_tools()
@@ -150,10 +153,76 @@ def test_resolve_tools_explicit_bad_path(monkeypatch) -> None:
         resolve_tools(ffmpeg_path="C:\\nope\\ffmpeg.exe")
 
 
+def test_finds_an_unpacked_ffmpeg_build_in_the_project(tmp_path) -> None:
+    """Dropping an FFmpeg release into the folder is enough."""
+    from filesight.video_probe import find_bundled_tool
+
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    bin_dir = tmp_path / "ffmpeg-8.1.2-essentials_build" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / name).write_bytes(b"stub")
+
+    found = find_bundled_tool("ffmpeg", roots=[tmp_path])
+    assert found == str(bin_dir / name)
+
+
+def test_finds_a_bare_executable_in_the_project(tmp_path) -> None:
+    from filesight.video_probe import find_bundled_tool
+
+    name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+    (tmp_path / name).write_bytes(b"stub")
+    assert find_bundled_tool("ffprobe", roots=[tmp_path]) == str(tmp_path / name)
+
+
+def test_finds_a_flat_ffmpeg_folder(tmp_path) -> None:
+    from filesight.video_probe import find_bundled_tool
+
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    folder = tmp_path / "ffmpeg"
+    folder.mkdir()
+    (folder / name).write_bytes(b"stub")
+    assert find_bundled_tool("ffmpeg", roots=[tmp_path]) == str(folder / name)
+
+
+def test_no_bundled_tool_returns_none(tmp_path) -> None:
+    from filesight.video_probe import find_bundled_tool
+
+    assert find_bundled_tool("ffmpeg", roots=[tmp_path]) is None
+
+
+def test_bundled_tool_is_preferred_over_path(tmp_path, monkeypatch) -> None:
+    """A deliberately placed build beats whatever is on PATH."""
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    bin_dir = tmp_path / "ffmpeg-build" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / name).write_bytes(b"stub")
+
+    monkeypatch.setattr(
+        video_probe, "_candidate_roots", lambda: [tmp_path]
+    )
+    monkeypatch.setattr(
+        video_probe.shutil, "which", lambda _: "C:\\system\\ffmpeg.exe"
+    )
+    assert video_probe._resolve_one("ffmpeg", None) == str(bin_dir / name)
+
+
+def test_explicit_path_still_wins_over_bundled(tmp_path, monkeypatch) -> None:
+    name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    bundled_dir = tmp_path / "ffmpeg-build" / "bin"
+    bundled_dir.mkdir(parents=True)
+    (bundled_dir / name).write_bytes(b"stub")
+    chosen = tmp_path / "chosen.exe"
+    chosen.write_bytes(b"stub")
+
+    monkeypatch.setattr(video_probe, "_candidate_roots", lambda: [tmp_path])
+    assert video_probe._resolve_one("ffmpeg", str(chosen)) == str(chosen)
+
+
 def test_resolve_tools_from_path(monkeypatch) -> None:
+    monkeypatch.setattr(video_probe, "_candidate_roots", lambda: [])
     monkeypatch.setattr(
         video_probe.shutil, "which", lambda name: f"C:\\bin\\{name}.exe"
     )
     tools = resolve_tools()
-    assert tools.ffmpeg.endswith("ffmpeg.exe")
-    assert tools.ffprobe.endswith("ffprobe.exe")
+    assert tools.ffmpeg == "C:\\bin\\ffmpeg.exe"
+    assert tools.ffprobe == "C:\\bin\\ffprobe.exe"

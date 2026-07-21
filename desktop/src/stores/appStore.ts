@@ -12,6 +12,7 @@ import type { WorkerClient } from "@/lib/worker";
 import { BaseWorkerClient, WorkerRequestError } from "@/lib/worker";
 import { validateFilename } from "@/lib/filename";
 import type {
+  AppSettings,
   ProfileInfo,
   RenamePlan,
   RenameResult,
@@ -90,6 +91,8 @@ export interface AppStore {
   environment: WorkerEnvironment | null;
   profiles: ProfileInfo[];
   workerExecutable: string | null;
+  /** Saved app settings; supplies the FFmpeg/config paths to the worker. */
+  settings: AppSettings | null;
 
   options: ScanOptions;
   report: ScanReport | null;
@@ -121,6 +124,8 @@ export interface AppStore {
 
   // worker-backed actions
   bootstrap: () => Promise<void>;
+  /** Re-read settings and re-check the environment (used after Settings). */
+  refreshEnvironment: () => Promise<void>;
   startScan: () => Promise<void>;
   cancelScan: () => Promise<void>;
   loadReport: (path: string) => Promise<void>;
@@ -145,6 +150,27 @@ export interface AppStore {
   setSort: (key: SortKey) => void;
   visibleEntries: () => ScanFileEntry[];
   entryErrors: () => Map<string, string>;
+}
+
+/** Tool paths every worker command that touches media needs. */
+export function toolPayload(
+  settings: AppSettings | null,
+): Record<string, unknown> {
+  return {
+    ffmpeg_path: settings?.ffmpeg_path ?? null,
+    ffprobe_path: settings?.ffprobe_path ?? null,
+    config: settings?.config_path ?? null,
+  };
+}
+
+/** Settings live in Rust; outside Tauri (tests) there simply are none. */
+async function loadSettings(): Promise<AppSettings | null> {
+  try {
+    const platform = await import("@/lib/platform");
+    return await platform.getAppSettings();
+  } catch {
+    return null;
+  }
 }
 
 /** True when a file operation is in flight and must not be interrupted. */
@@ -186,6 +212,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   environment: null,
   profiles: [],
   workerExecutable: null,
+  settings: null,
 
   options: { ...defaultScanOptions },
   report: null,
@@ -252,21 +279,34 @@ export const useAppStore = create<AppStore>((set, get) => ({
     try {
       const executable = await client.start();
       set({ workerExecutable: executable });
-      const environment = (await client.request("get_environment", {
-        ffmpeg_path: get().options.configPath ? undefined : undefined,
-      })) as unknown as WorkerEnvironment;
-      const profileData = (await client.request("get_profiles", {})) as {
-        profiles: ProfileInfo[];
-        default_profile: string;
-      };
+
+      const settings = await loadSettings();
+      const environment = (await client.request(
+        "get_environment",
+        toolPayload(settings),
+      )) as unknown as WorkerEnvironment;
+      const profileData = (await client.request("get_profiles", {
+        config: settings?.config_path ?? null,
+      })) as { profiles: ProfileInfo[]; default_profile: string };
+
       set((state) => ({
+        settings,
         environment,
         profiles: profileData.profiles ?? [],
         options: {
           ...state.options,
           profile: state.options.profile || profileData.default_profile,
+          // Saved defaults apply until the user changes them for this run.
+          recursive: settings?.default_recursive ?? state.options.recursive,
+          includeVideos:
+            settings?.default_include_videos ?? state.options.includeVideos,
+          configPath: state.options.configPath ?? settings?.config_path ?? null,
+          directory: state.options.directory || (settings?.last_directory ?? ""),
         },
-        uiState: state.options.directory ? "folder_selected" : "idle",
+        uiState:
+          state.options.directory || settings?.last_directory
+            ? "folder_selected"
+            : "idle",
       }));
     } catch (error) {
       set({
@@ -277,6 +317,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
             : "Could not start the analysis worker.",
         errorDetail: error instanceof WorkerRequestError ? error.code : null,
       });
+    }
+  },
+
+  refreshEnvironment: async () => {
+    const { client } = get();
+    if (!client) return;
+    try {
+      const settings = await loadSettings();
+      const environment = (await client.request(
+        "get_environment",
+        toolPayload(settings),
+      )) as unknown as WorkerEnvironment;
+      set({ settings, environment });
+    } catch {
+      // a failed re-check must not disturb the current session
     }
   },
 
@@ -299,6 +354,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
       progress: { ...emptyProgress, phase: "Preparing", startedAt: Date.now() },
     });
 
+    const settings = get().settings;
     const payload: Record<string, unknown> = {
       directory: options.directory,
       recursive: options.recursive,
@@ -309,10 +365,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
       video_frames: options.videoFrames,
       max_video_duration: options.maxVideoDuration,
       allow_long_videos: options.allowLongVideos,
-      config: options.configPath,
+      config: options.configPath ?? settings?.config_path ?? null,
       language: options.language,
       transliterate: options.transliterate,
       output: options.outputPath,
+      // Without these a configured FFmpeg would be ignored and every
+      // video would fail with FFMPEG_NOT_FOUND.
+      ...toolPayload(settings),
     };
 
     const onEvent = (event: WorkerEvent) => {

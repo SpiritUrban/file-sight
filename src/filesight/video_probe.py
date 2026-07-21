@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -45,6 +46,44 @@ def resolve_tools(
     return FFmpegTools(ffmpeg=ffmpeg, ffprobe=ffprobe)
 
 
+def _candidate_roots() -> list[Path]:
+    """Places a project-local FFmpeg may sit: the checkout and the cwd."""
+    roots: list[Path] = []
+    # src/filesight/video_probe.py -> <repo root>
+    try:
+        roots.append(Path(__file__).resolve().parents[2])
+    except IndexError:  # pragma: no cover - defensive
+        pass
+    try:
+        roots.append(Path.cwd())
+    except OSError:  # pragma: no cover - defensive
+        pass
+    return roots
+
+
+def find_bundled_tool(
+    name: str, roots: Optional[list[Path]] = None
+) -> Optional[str]:
+    """Find an FFmpeg dropped into the project folder.
+
+    Accepts ``<root>/ffmpeg.exe`` as well as an unpacked distribution such
+    as ``<root>/ffmpeg-8.1.2-essentials_build/bin/ffmpeg.exe``, so simply
+    extracting a release next to the project is enough.
+    """
+    executable = f"{name}.exe" if os.name == "nt" else name
+    for root in roots if roots is not None else _candidate_roots():
+        direct = root / executable
+        if direct.is_file():
+            return str(direct)
+        for folder in sorted(root.glob("ffmpeg*")):
+            if not folder.is_dir():
+                continue
+            for candidate in (folder / "bin" / executable, folder / executable):
+                if candidate.is_file():
+                    return str(candidate)
+    return None
+
+
 def _resolve_one(name: str, explicit: Optional[str]) -> str:
     if explicit:
         candidate = Path(explicit)
@@ -56,12 +95,18 @@ def _resolve_one(name: str, explicit: Optional[str]) -> str:
         raise FFmpegNotFound(
             f"{name} not found at the given path: {explicit}"
         )
+    # A copy shipped with the project wins over PATH: it was put there
+    # deliberately, and it keeps the app working without any setup.
+    bundled = find_bundled_tool(name)
+    if bundled:
+        return bundled
     found = shutil.which(name)
     if found:
         return found
     raise FFmpegNotFound(
-        f"{name} was not found on PATH. Install FFmpeg and add it to PATH, "
-        f"or pass --{name}-path C:\\path\\to\\{name}.exe. "
+        f"{name} was not found. Install FFmpeg and add it to PATH, unpack an "
+        f"FFmpeg build into the FileSight folder, or pass "
+        f"--{name}-path C:\\path\\to\\{name}.exe. "
         "See the README section 'Video support' for install steps."
     )
 

@@ -1,0 +1,13 @@
+{
+  "name": "file-sight",
+  "private": true,
+  "version": "0.5.0",
+  "description": "Repo-root shortcuts. The desktop app itself lives in desktop/.",
+  "scripts": {
+    "dev": "npm --prefix desktop run dev",
+    "dev:mock": "npm --prefix desktop run dev:mock",
+    "build": "npm --prefix desktop run tauri build",
+    "test": "npm --prefix desktop run test",
+    "install:desktop": "npm --prefix desktop install"
+  }
+}

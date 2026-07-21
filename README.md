@@ -88,29 +88,34 @@ python -m pip install --upgrade pip
 pip install torch --index-url https://download.pytorch.org/whl/cpu
 pip install -e ".[dev]"
 
-cd desktop
-npm install
+npm run install:desktop
 npm run dev
 ```
 
-`npm run dev` збирає фронтенд і **запускає сам застосунок** (Tauri).
-Перша збірка Rust займає кілька хвилин, далі — секунди.
+Обидві команди виконуються **з кореня репозиторію** — кореневий
+`package.json` переадресовує їх у `desktop/`. `npm run dev` збирає
+фронтенд і **запускає сам застосунок** (Tauri). Перша збірка Rust займає
+кілька хвилин, далі — секунди.
 
 Для роботи над інтерфейсом без Python, FFmpeg і моделі (дані підставляє
 вбудований mock worker, відкривається у браузері):
 
 ```powershell
-cd desktop
 npm run dev:mock
 ```
 
-| Скрипт | Що робить |
+Команди з кореня репозиторію:
+
+| Команда | Що робить |
 | --- | --- |
+| `npm run install:desktop` | встановлює залежності фронтенду |
 | `npm run dev` | запускає desktop-застосунок |
 | `npm run dev:mock` | лише UI у браузері на фейкових даних |
-| `npm run dev:vite` | лише Vite (використовується Tauri всередині) |
 | `npm test` | React-тести |
-| `npm run tauri build` | збірка інсталяторів |
+| `npm run build` | збірка інсталяторів (MSI + NSIS) |
+
+Ті самі скрипти доступні і з папки `desktop/`; там додатково є
+`npm run dev:vite` (лише Vite — його викликає Tauri всередині).
 
 ### Збірка для Windows
 
@@ -388,7 +393,25 @@ FileSight може аналізувати короткі відео, витяг�
 
 Для зображень FFmpeg не потрібен. Для відео потрібні `ffmpeg` і `ffprobe`.
 
-Встановлення на Windows (один зі способів):
+**Найпростіший спосіб — розпакувати збірку в папку проєкту.** Завантажте
+архів із <https://www.gyan.dev/ffmpeg/builds/> і розпакуйте його поруч із
+`README.md`. FileSight знайде його сам:
+
+```text
+file-sight/
+├─ ffmpeg-8.1.2-essentials_build/
+│  └─ bin/
+│     ├─ ffmpeg.exe
+│     └─ ffprobe.exe
+├─ src/
+└─ README.md
+```
+
+Підходить будь-який із варіантів: `ffmpeg*/bin/ffmpeg.exe`,
+`ffmpeg/ffmpeg.exe` або просто `ffmpeg.exe` у корені. Такі папки внесені
+в `.gitignore` — бінарники (~200 МБ) не потраплять у репозиторій.
+
+Інші способи:
 
 ```powershell
 winget install Gyan.FFmpeg
@@ -396,21 +419,22 @@ winget install Gyan.FFmpeg
 choco install ffmpeg
 ```
 
-Або завантажити збірку з <https://www.gyan.dev/ffmpeg/builds/>, розпакувати
-й додати папку `bin` до PATH. Перевірка:
+Перевірка:
 
 ```powershell
 ffmpeg -version
 ffprobe -version
 ```
 
-Якщо FFmpeg не в PATH, передайте явні шляхи:
+Або передайте явні шляхи (мають найвищий пріоритет):
 
 ```powershell
 filesight scan "D:\Media" --videos-only `
   --ffmpeg-path "C:\ffmpeg\bin\ffmpeg.exe" `
   --ffprobe-path "C:\ffmpeg\bin\ffprobe.exe"
 ```
+
+Порядок пошуку: **явний шлях (CLI або Settings) → папка проєкту → PATH**.
 
 ### Параметри відео
 
