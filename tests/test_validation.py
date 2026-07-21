@@ -119,6 +119,48 @@ def test_old_schema_without_metadata_warns_but_does_not_block(tmp_path: Path) ->
     assert len(plan.renames) == 1
 
 
+def test_report_survives_a_javascript_json_round_trip(tmp_path: Path) -> None:
+    """The desktop UI parses the report in JS, where numbers are doubles.
+
+    A nanosecond mtime (~1.8e18) exceeds JS's exact-integer range and comes
+    back rounded. An untouched file must not be reported as modified.
+    """
+    a = make_file(tmp_path / "IMG_1.jpg")
+    entry = entry_for(a, "dog.jpg")
+    exact = entry["source_metadata"]["modified_at_ns"]
+
+    # float() reproduces exactly what JSON.parse gives a JS Number
+    rounded = int(float(exact))
+    entry["source_metadata"]["modified_at_ns"] = rounded
+
+    plan = plan_for(tmp_path, [entry])
+    assert "SOURCE_MODIFIED" not in error_codes(plan)
+    assert len(plan.renames) == 1
+
+
+def test_a_real_edit_is_still_detected_despite_the_tolerance(tmp_path: Path) -> None:
+    from filesight.validation import MTIME_TOLERANCE_NS
+
+    a = make_file(tmp_path / "IMG_1.jpg")
+    entry = entry_for(a, "dog.jpg")
+    # far beyond rounding, well inside what a real edit looks like
+    entry["source_metadata"]["modified_at_ns"] -= MTIME_TOLERANCE_NS * 1000
+
+    plan = plan_for(tmp_path, [entry])
+    assert "SOURCE_MODIFIED" in error_codes(plan)
+
+
+def test_a_size_change_is_never_tolerated(tmp_path: Path) -> None:
+    a = make_file(tmp_path / "IMG_1.jpg", b"original")
+    entry = entry_for(a, "dog.jpg")
+    a.write_bytes(b"different length content")
+    os.utime(a, ns=(entry["source_metadata"]["modified_at_ns"],
+                    entry["source_metadata"]["modified_at_ns"]))
+
+    plan = plan_for(tmp_path, [entry])
+    assert "SOURCE_MODIFIED" in error_codes(plan)
+
+
 def test_modified_source_is_blocked(tmp_path: Path) -> None:
     a = make_file(tmp_path / "IMG_001.jpg")
     entry = entry_for(a, "dog.jpg")  # captures current metadata

@@ -22,6 +22,14 @@ RESERVED_NAMES = (
 )
 MAX_FULL_PATH = 259  # classic Windows MAX_PATH minus the terminator
 
+# Reports travel through JSON, and in the desktop UI that means JavaScript,
+# where every number is an IEEE double. A nanosecond timestamp (~1.8e18)
+# is far past the 2^53 exact-integer range, so it comes back rounded by up
+# to a few hundred nanoseconds — enough to look like a modified file.
+# Compare with a tolerance that is orders of magnitude below any real edit;
+# size is still compared exactly.
+MTIME_TOLERANCE_NS = 10_000  # 10 microseconds
+
 SKIP_NOT_SUCCESS = "report status is {status}"
 SKIP_DISABLED = "rename_enabled is false in report"
 SKIP_UNCHANGED = "name unchanged"
@@ -45,6 +53,19 @@ class EntryEvaluation:
     @property
     def has_errors(self) -> bool:
         return any(issue.severity == "error" for issue in self.issues)
+
+
+def _mtime_matches(actual_ns: int, recorded: object) -> bool:
+    """Compare modification times, tolerating JSON double rounding.
+
+    See MTIME_TOLERANCE_NS: a report that passed through a JavaScript UI
+    carries a slightly rounded timestamp even though the file is untouched.
+    """
+    try:
+        recorded_ns = int(recorded)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return False
+    return abs(actual_ns - recorded_ns) <= MTIME_TOLERANCE_NS
 
 
 def _error(code: str, message: str, path: Optional[str], index: int) -> ValidationIssue:
@@ -299,7 +320,7 @@ def evaluate_entry(index: int, entry: dict) -> EntryEvaluation:
         stat = source.stat()
         size_ok = stat.st_size == metadata.get("size_bytes")
         mtime = metadata.get("modified_at_ns")
-        mtime_ok = mtime is None or stat.st_mtime_ns == mtime
+        mtime_ok = mtime is None or _mtime_matches(stat.st_mtime_ns, mtime)
         if not (size_ok and mtime_ok):
             result.issues.append(
                 _error(
