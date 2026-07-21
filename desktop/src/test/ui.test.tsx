@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -6,7 +6,11 @@ import App from "@/App";
 import { validateFilename } from "@/lib/filename";
 import { MockWorkerClient, MOCK_ENTRIES } from "@/lib/mockWorker";
 import { safeParse, workerEventSchema, reportSchema } from "@/lib/schemas";
-import { defaultScanOptions, useAppStore } from "@/stores/appStore";
+import {
+  defaultScanOptions,
+  emptyProgress,
+  useAppStore,
+} from "@/stores/appStore";
 
 function setup(client = new MockWorkerClient()) {
   useAppStore.setState({
@@ -29,10 +33,7 @@ function setup(client = new MockWorkerClient()) {
     profiles: [],
     activeRequestId: null,
     options: { ...defaultScanOptions },
-    progress: {
-      phase: "", currentFile: null, completed: 0, total: 0,
-      percent: 0, succeeded: 0, failed: 0, startedAt: null,
-    },
+    progress: { ...emptyProgress },
   });
   localStorage.setItem("filesight.onboarding", "1"); // skip onboarding
   return client;
@@ -106,8 +107,11 @@ describe("progress", () => {
     const scan = useAppStore.getState().startScan();
 
     await waitFor(() => expect(screen.getByRole("status")).toBeInTheDocument());
+    // the overall bar, distinct from the per-file one on the live stage
     await waitFor(() =>
-      expect(screen.getByRole("progressbar")).toBeInTheDocument(),
+      expect(
+        screen.getByRole("progressbar", { name: /analysis progress/i }),
+      ).toBeInTheDocument(),
     );
     await scan;
     expect(client.sent.some((s) => s.command === "scan")).toBe(true);
@@ -126,6 +130,129 @@ describe("progress", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /start analysis/i })).toBeInTheDocument(),
     );
+  });
+});
+
+describe("live analysis stage", () => {
+  /**
+   * Render the app, let bootstrap settle, then pin the store to a specific
+   * mid-analysis state. Setting it before render would be clobbered by
+   * bootstrap; driving a real scan would race on timing.
+   */
+  async function renderMidAnalysis(
+    overrides: Partial<typeof emptyProgress> = {},
+    uiState: "analyzing" | "loading_model" = "analyzing",
+  ) {
+    setup();
+    render(<App />);
+    await screen.findByRole("button", { name: /start analysis/i });
+    act(() => {
+      useAppStore.setState({
+        uiState,
+        options: { ...defaultScanOptions, directory: "C:\\Photos" },
+        progress: {
+          ...emptyProgress,
+          phase: uiState === "loading_model" ? "Loading model" : "Analyzing",
+          currentFile: "IMG_0001.jpg",
+          currentThumbnail: "C:\\cache\\IMG_0001.jpg.jpg",
+          currentMediaType: "image",
+          currentIndex: 1,
+          total: 4,
+          startedAt: Date.now(),
+          ...overrides,
+        },
+      });
+    });
+    return screen.findByLabelText("Analysis in progress");
+  }
+
+  it("shows the current file with a preview and a per-file progress bar", async () => {
+    const stage = await renderMidAnalysis();
+    expect(within(stage).getByText("IMG_0001.jpg")).toBeInTheDocument();
+    expect(within(stage).getByText(/File 1 of 4/)).toBeInTheDocument();
+
+    const preview = within(stage).getByRole("img");
+    expect(preview).toHaveAttribute("alt", expect.stringContaining("IMG_0001.jpg"));
+    expect(preview).toHaveAttribute("src", expect.stringContaining("IMG_0001.jpg"));
+
+    expect(
+      within(stage).getByRole("progressbar", { name: /current file progress/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the model-loading state before any file", async () => {
+    const stage = await renderMidAnalysis({}, "loading_model");
+    expect(within(stage).getByText(/loading the ai model/i)).toBeInTheDocument();
+  });
+
+  it("reveals caption, category and the new name once a file finishes", async () => {
+    const stage = await renderMidAnalysis({
+      lastResult: {
+        name: "IMG_0001.jpg",
+        status: "success",
+        caption: "a black dog running through snow",
+        category: "animals",
+        suggestedName: "animals-black-dog-running.jpg",
+        error: null,
+      },
+    });
+    expect(
+      within(stage).getByText("a black dog running through snow"),
+    ).toBeInTheDocument();
+    expect(within(stage).getByText("animals")).toBeInTheDocument();
+    expect(
+      within(stage).getByText("animals-black-dog-running.jpg"),
+    ).toBeInTheDocument();
+  });
+
+  it("says it is still waiting before the first result arrives", async () => {
+    const stage = await renderMidAnalysis();
+    expect(within(stage).getByText(/waiting for the result/i)).toBeInTheDocument();
+  });
+
+  it("reports the video sub-step while frames are analyzed", async () => {
+    const stage = await renderMidAnalysis({
+      currentFile: "clip.mp4",
+      currentMediaType: "video",
+      stepLabel: "Analyzing frame",
+      stepCurrent: 2,
+      stepTotal: 6,
+    });
+    expect(within(stage).getByText(/Analyzing frame 2\/6/)).toBeInTheDocument();
+    expect(within(stage).getByText(/· video/)).toBeInTheDocument();
+    // the per-file bar is exact for videos
+    expect(
+      within(stage).getByRole("progressbar", { name: /current file progress/i }),
+    ).toHaveAttribute("aria-valuenow", "33");
+  });
+
+  it("lists recently finished files", async () => {
+    const stage = await renderMidAnalysis({
+      recent: [
+        {
+          name: "current.jpg", status: "success", caption: null,
+          category: null, suggestedName: "new-current.jpg", error: null,
+        },
+        {
+          name: "earlier.jpg", status: "success", caption: null,
+          category: null, suggestedName: "new-earlier.jpg", error: null,
+        },
+        {
+          name: "broken.png", status: "failed", caption: null,
+          category: null, suggestedName: null, error: "cannot identify",
+        },
+      ],
+    });
+    // the newest entry is the one already shown in detail above
+    expect(within(stage).getByText("new-earlier.jpg")).toBeInTheDocument();
+    expect(within(stage).getByText("cannot identify")).toBeInTheDocument();
+  });
+
+  it("gives way to the table once the analysis finishes", async () => {
+    await scanned();
+    render(<App />);
+    expect(await screen.findByText("IMG_0001.jpg")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Analysis in progress")).toBeNull();
   });
 });
 
@@ -337,6 +464,121 @@ describe("rename and undo", () => {
     const result = await screen.findByRole("dialog", { name: /rename completed/i });
     expect(within(result).getByText("Renamed")).toBeInTheDocument();
     expect(within(result).getByText(/filesight-rename-log/)).toBeInTheDocument();
+  });
+
+  it("lists the actual problems when validation blocks the rename", async () => {
+    const user = userEvent.setup();
+    const client = new MockWorkerClient();
+    // the worker rejects apply_rename with per-file reasons
+    const original = client.send.bind(client);
+    client.send = async (requestId, command, payload) => {
+      if (command === "apply_rename") {
+        client.sent.push({ command, payload: payload ?? {} });
+        setTimeout(() => {
+          (client as unknown as {
+            dispatch: (e: unknown) => void;
+          }).dispatch({
+            request_id: requestId,
+            event: "error",
+            data: {
+              code: "VALIDATION_FAILED",
+              message: "Target path is occupied: C:\\Photos\\taken.jpg",
+              recoverable: true,
+              details: [
+                {
+                  severity: "error",
+                  code: "TARGET_ALREADY_EXISTS",
+                  message: "Target path is occupied by a file outside the plan.",
+                  path: "C:\\Photos\\taken.jpg",
+                  entry_index: 0,
+                },
+              ],
+            },
+          });
+        }, 0);
+        return;
+      }
+      return original(requestId, command, payload);
+    };
+
+    await scanned(client);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /rename files/i }));
+    const confirm = await screen.findByRole("dialog", { name: /rename files/i });
+    await user.click(within(confirm).getByRole("button", { name: /rename 3 files/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("TARGET_ALREADY_EXISTS");
+    expect(alert).toHaveTextContent("taken.jpg");
+    expect(alert).toHaveTextContent(/no files were changed/i);
+    // and a concrete next step, not just a code
+    expect(alert).toHaveTextContent(/already uses that name/i);
+  });
+
+  it("offers a one-click re-analysis when files changed on disk", async () => {
+    const user = userEvent.setup();
+    const client = new MockWorkerClient();
+    await scanned(client);
+    render(<App />);
+    await screen.findByText("IMG_0001.jpg");
+
+    act(() => {
+      useAppStore.setState({
+        uiState: "rename_failed",
+        errorMessage: "File was modified after the scan.",
+        errorDetail: "VALIDATION_FAILED",
+        errorIssues: [
+          {
+            severity: "error",
+            code: "SOURCE_MODIFIED",
+            message: "File was modified or replaced after the scan.",
+            path: "D:\\Photos\\a.webp",
+            entry_index: 0,
+          },
+        ],
+      });
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/changed on disk after the analysis/i);
+
+    const before = client.sent.filter((s) => s.command === "scan").length;
+    await user.click(
+      within(alert).getByRole("button", { name: /run analysis again/i }),
+    );
+    await waitFor(() =>
+      expect(client.sent.filter((s) => s.command === "scan").length).toBe(
+        before + 1,
+      ),
+    );
+  });
+
+  it("does not offer re-analysis for problems a rescan cannot fix", async () => {
+    await scanned();
+    render(<App />);
+    await screen.findByText("IMG_0001.jpg");
+
+    act(() => {
+      useAppStore.setState({
+        uiState: "rename_failed",
+        errorMessage: "Two files would get the same name.",
+        errorIssues: [
+          {
+            severity: "error",
+            code: "DUPLICATE_TARGET",
+            message: "Two files target the same name.",
+            path: null,
+            entry_index: 0,
+          },
+        ],
+      });
+    });
+
+    const alert = await screen.findByRole("alert");
+    expect(
+      within(alert).queryByRole("button", { name: /run analysis again/i }),
+    ).toBeNull();
+    expect(within(alert).getByRole("button", { name: /dismiss/i })).toBeInTheDocument();
   });
 
   it("never shows a partial failure as success", async () => {

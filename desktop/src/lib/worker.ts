@@ -4,7 +4,7 @@
  * `WorkerClient` is an interface so tests and UI development can swap in
  * a mock (lib/mockWorker.ts) without touching component code.
  */
-import type { WorkerCommand, WorkerEvent } from "@/types";
+import type { ValidationIssue, WorkerCommand, WorkerEvent } from "@/types";
 
 export type EventHandler = (event: WorkerEvent) => void;
 
@@ -30,13 +30,31 @@ export interface WorkerClient {
 export class WorkerRequestError extends Error {
   code: string;
   recoverable: boolean;
+  /** Per-file reasons, so the UI can say what to fix rather than just "failed". */
+  details: ValidationIssue[];
 
-  constructor(code: string, message: string, recoverable = true) {
+  constructor(
+    code: string,
+    message: string,
+    recoverable = true,
+    details: ValidationIssue[] = [],
+  ) {
     super(message);
     this.name = "WorkerRequestError";
     this.code = code;
     this.recoverable = recoverable;
+    this.details = details;
   }
+}
+
+/** Build the error carried by an `error` event. */
+export function errorFromEvent(data: Record<string, unknown>): WorkerRequestError {
+  return new WorkerRequestError(
+    (data.code as string) ?? "UNKNOWN",
+    (data.message as string) ?? "The worker reported an error.",
+    (data.recoverable as boolean) ?? true,
+    Array.isArray(data.details) ? (data.details as ValidationIssue[]) : [],
+  );
 }
 
 export function newRequestId(): string {
@@ -92,18 +110,7 @@ export abstract class BaseWorkerClient implements WorkerClient {
           resolve(event.data as T);
         } else if (event.event === "error") {
           unsubscribe();
-          const data = event.data as {
-            code?: string;
-            message?: string;
-            recoverable?: boolean;
-          };
-          reject(
-            new WorkerRequestError(
-              data.code ?? "UNKNOWN",
-              data.message ?? "The worker reported an error.",
-              data.recoverable ?? true,
-            ),
-          );
+          reject(errorFromEvent(event.data));
         }
       });
       this.send(requestId, command, payload).catch((error: unknown) => {
@@ -131,18 +138,7 @@ export abstract class BaseWorkerClient implements WorkerClient {
           resolve(event.data as T);
         } else if (event.event === "error") {
           unsubscribe();
-          const data = event.data as {
-            code?: string;
-            message?: string;
-            recoverable?: boolean;
-          };
-          reject(
-            new WorkerRequestError(
-              data.code ?? "UNKNOWN",
-              data.message ?? "The worker reported an error.",
-              data.recoverable ?? true,
-            ),
-          );
+          reject(errorFromEvent(event.data));
         }
       });
       this.send(requestId, command, payload).catch((error: unknown) => {

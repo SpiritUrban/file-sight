@@ -12,13 +12,49 @@ import {
 import { DetailPanel } from "@/features/DetailPanel";
 import { EnvironmentBar } from "@/features/EnvironmentBar";
 import { FilterBar } from "@/features/FilterBar";
+import { LiveStage } from "@/features/LiveStage";
 import { MediaTable } from "@/features/MediaTable";
 import { ProgressBar } from "@/features/ProgressBar";
 import { SettingsDialog } from "@/features/SettingsDialog";
 import { Toolbar } from "@/features/Toolbar";
 import { chooseDirectory, openPath, revealPath } from "@/lib/platform";
 import { isBusy, isFileOperation, useAppStore } from "@/stores/appStore";
-import type { UndoResult } from "@/types";
+import type { UndoResult, ValidationIssue } from "@/types";
+
+/**
+ * Problems a fresh analysis actually fixes: the files on disk are no
+ * longer the ones that were analyzed.
+ */
+function isRescannable(issues: ValidationIssue[]): boolean {
+  return issues.some(
+    (issue) =>
+      issue.code === "SOURCE_MODIFIED" || issue.code === "SOURCE_MISSING",
+  );
+}
+
+/** Turn the validation codes into one actionable sentence. */
+function fixHint(issues: ValidationIssue[]): string {
+  const codes = new Set(issues.map((issue) => issue.code));
+  if (codes.has("SOURCE_MODIFIED")) {
+    return "These files changed on disk after the analysis. Run the analysis again.";
+  }
+  if (codes.has("SOURCE_MISSING")) {
+    return "These files no longer exist. Run the analysis again.";
+  }
+  if (codes.has("TARGET_ALREADY_EXISTS")) {
+    return "Another file already uses that name. Edit the suggested name, or turn that file off.";
+  }
+  if (codes.has("DUPLICATE_TARGET")) {
+    return "Two files would get the same name. Edit one of them.";
+  }
+  if (codes.has("EXTENSION_CHANGED")) {
+    return "The extension must stay the same as the original file.";
+  }
+  if (codes.has("INVALID_NAME") || codes.has("RESERVED_NAME") || codes.has("NAME_IS_PATH")) {
+    return "Fix the highlighted names in the table.";
+  }
+  return "Use Validate to review every problem.";
+}
 
 export default function App() {
   const uiState = useAppStore((s) => s.uiState);
@@ -27,6 +63,7 @@ export default function App() {
   const options = useAppStore((s) => s.options);
   const errorMessage = useAppStore((s) => s.errorMessage);
   const errorDetail = useAppStore((s) => s.errorDetail);
+  const errorIssues = useAppStore((s) => s.errorIssues);
   const clearError = useAppStore((s) => s.clearError);
   const validation = useAppStore((s) => s.validation);
   const plan = useAppStore((s) => s.plan);
@@ -34,6 +71,7 @@ export default function App() {
   const logPath = useAppStore((s) => s.logPath);
 
   const bootstrap = useAppStore((s) => s.bootstrap);
+  const startScan = useAppStore((s) => s.startScan);
   const setDirectory = useAppStore((s) => s.setDirectory);
   const saveReport = useAppStore((s) => s.saveReport);
   const validateReport = useAppStore((s) => s.validateReport);
@@ -78,6 +116,12 @@ export default function App() {
     report?.files.filter((f) => f.status === "success" && f.rename_enabled).length ?? 0;
   const hasNameErrors = entryErrors().size > 0;
   const busy = isBusy(uiState);
+  // While a scan runs the live stage replaces the table/empty screen.
+  const analysing =
+    uiState === "scanning" ||
+    uiState === "analyzing" ||
+    uiState === "loading_model" ||
+    uiState === "cancelling";
   const canRename = Boolean(report) && enabledCount > 0 && !hasNameErrors && !busy;
 
   const runValidate = async () => {
@@ -125,20 +169,60 @@ export default function App() {
           className="flex items-start gap-2 rounded-lg border border-red-300 bg-red-50 p-3 text-sm"
         >
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
-          <div className="flex-1">
+          <div className="min-w-0 flex-1">
             <p className="font-medium text-red-900">{errorMessage}</p>
             <p className="text-red-800">No files were changed.</p>
-            {errorDetail ? (
+            {errorIssues.length > 0 ? (
+              <>
+                <ul className="mt-2 space-y-1">
+                  {errorIssues.slice(0, 8).map((issue, index) => (
+                    <li key={index} className="text-red-800">
+                      <span className="font-mono text-xs">{issue.code}</span>
+                      {" — "}
+                      {issue.message}
+                      {issue.path ? (
+                        <span className="block break-all text-xs text-red-700">
+                          {issue.path}
+                        </span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {errorIssues.length > 8 ? (
+                  <p className="mt-1 text-xs text-red-700">
+                    …and {errorIssues.length - 8} more. Use Validate to see them all.
+                  </p>
+                ) : null}
+                <p className="mt-2 text-red-800">{fixHint(errorIssues)}</p>
+              </>
+            ) : errorDetail ? (
               <p className="mt-1 font-mono text-xs text-red-700">{errorDetail}</p>
             ) : null}
           </div>
-          <button type="button" className="btn-secondary" onClick={clearError}>
-            Dismiss
-          </button>
+          <div className="flex shrink-0 flex-col gap-2">
+            {isRescannable(errorIssues) ? (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => {
+                  clearError();
+                  void startScan();
+                }}
+                disabled={busy}
+              >
+                Run analysis again
+              </button>
+            ) : null}
+            <button type="button" className="btn-secondary" onClick={clearError}>
+              Dismiss
+            </button>
+          </div>
         </div>
       ) : null}
 
-      {!report ? (
+      {analysing ? (
+        <LiveStage />
+      ) : !report ? (
         <div className="panel flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
           <FolderOpen className="h-10 w-10 text-slate-400" aria-hidden />
           <h2 className="text-base font-medium">

@@ -449,7 +449,18 @@ export class MockWorkerClient extends BaseWorkerClient {
         total: files.length,
         path: file.original_path,
         name: file.original_name,
+        thumbnail: `C:\\cache\\${file.original_name}.jpg`,
+        media_type: file.media_type,
       });
+      if (file.media_type === "video") {
+        // videos report per-frame progress inside the file
+        this.emit(requestId, "frame_progress", {
+          label: "Analyzing frame",
+          current: 1,
+          total: 2,
+        });
+        await this.pause();
+      }
       this.emit(requestId, "file_completed", {
         path: file.original_path,
         name: file.original_name,

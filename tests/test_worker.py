@@ -310,6 +310,44 @@ def test_apply_rename_and_undo_round_trip(worker, tmp_path: Path) -> None:
     assert instance.model_loaded is False
 
 
+def test_apply_rename_error_names_the_actual_problems(
+    worker, tmp_path: Path
+) -> None:
+    """A bare VALIDATION_FAILED code leaves the user with nothing to act on."""
+    image = make_file(tmp_path / "IMG_1.jpg")
+    make_file(tmp_path / "black-dog-running.jpg")  # target already taken
+
+    instance, events = worker
+    run(instance, "apply_rename",
+        {"report": report_dict_for(image), "path": str(tmp_path / "r.json")})
+
+    event = events.last()
+    assert event["event"] == "error"
+    assert event["data"]["code"] == "VALIDATION_FAILED"
+    # the message says what is wrong, not just that something is
+    assert "black-dog-running.jpg" in event["data"]["message"]
+    details = event["data"]["details"]
+    assert details and details[0]["code"] == "TARGET_ALREADY_EXISTS"
+    assert details[0]["path"].endswith("black-dog-running.jpg")
+    # and nothing was renamed
+    assert image.exists()
+
+
+def test_apply_rename_error_counts_extra_problems(worker, tmp_path: Path) -> None:
+    a = make_file(tmp_path / "IMG_1.jpg")
+    b = make_file(tmp_path / "IMG_2.jpg")
+    report = report_dict_for(a)
+    second = dict(report["files"][0])
+    second.update({"original_path": str(b), "original_name": b.name})
+    report["files"].append(second)  # both target black-dog-running.jpg
+
+    instance, events = worker
+    run(instance, "apply_rename", {"report": report, "path": str(tmp_path / "r.json")})
+    data = events.last()["data"]
+    assert data["code"] == "VALIDATION_FAILED"
+    assert [d["code"] for d in data["details"]] == ["DUPLICATE_TARGET"]
+
+
 def test_undo_dry_run_changes_nothing(worker, tmp_path: Path) -> None:
     image = make_file(tmp_path / "IMG_1.jpg", b"bytes")
     instance, events = worker

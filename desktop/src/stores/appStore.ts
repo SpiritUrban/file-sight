@@ -13,6 +13,8 @@ import { BaseWorkerClient, WorkerRequestError } from "@/lib/worker";
 import { validateFilename } from "@/lib/filename";
 import type {
   AppSettings,
+  EntryStatus,
+  MediaType,
   ProfileInfo,
   RenamePlan,
   RenameResult,
@@ -21,6 +23,7 @@ import type {
   ScanReport,
   UiState,
   UndoResult,
+  ValidationIssue,
   ValidationResult,
   WorkerEnvironment,
   WorkerEvent,
@@ -44,27 +47,60 @@ export type SortKey =
   | "media_type"
   | "processing_time_ms";
 
+/** One finished file, kept so the UI can show what just happened. */
+export interface LiveResult {
+  name: string;
+  status: EntryStatus;
+  caption: string | null;
+  category: string | null;
+  suggestedName: string | null;
+  error: string | null;
+}
+
 export interface ProgressState {
   phase: string;
   currentFile: string | null;
+  /** Cached preview of the file being processed right now. */
+  currentThumbnail: string | null;
+  currentMediaType: MediaType;
+  currentIndex: number;
+  /** Sub-step inside one file, e.g. "Analyzing frame 2/6" for videos. */
+  stepLabel: string | null;
+  stepCurrent: number;
+  stepTotal: number;
   completed: number;
   total: number;
   percent: number;
   succeeded: number;
   failed: number;
   startedAt: number | null;
+  /** Result of the file that just finished. */
+  lastResult: LiveResult | null;
+  /** A short tail of finished files, newest first. */
+  recent: LiveResult[];
 }
 
-const emptyProgress: ProgressState = {
+/** The zero state; exported so callers can reset without repeating it. */
+export const emptyProgress: ProgressState = {
   phase: "",
   currentFile: null,
+  currentThumbnail: null,
+  currentMediaType: "image",
+  currentIndex: 0,
+  stepLabel: null,
+  stepCurrent: 0,
+  stepTotal: 0,
   completed: 0,
   total: 0,
   percent: 0,
   succeeded: 0,
   failed: 0,
   startedAt: null,
+  lastResult: null,
+  recent: [],
 };
+
+const RECENT_LIMIT = 6;
 
 export const defaultScanOptions: ScanOptions = {
   directory: "",
@@ -87,6 +123,8 @@ export interface AppStore {
   uiState: UiState;
   errorMessage: string | null;
   errorDetail: string | null;
+  /** Per-file reasons behind the current error, when the worker sent any. */
+  errorIssues: ValidationIssue[];
 
   environment: WorkerEnvironment | null;
   profiles: ProfileInfo[];
@@ -176,6 +214,9 @@ async function loadSettings(): Promise<AppSettings | null> {
 /** True when a file operation is in flight and must not be interrupted. */
 export function isBusy(state: UiState): boolean {
   return (
+    // The worker preloads the model at startup; sending a scan before the
+    // environment check returns just races it.
+    state === "environment_check" ||
     state === "scanning" ||
     state === "analyzing" ||
     state === "loading_model" ||
@@ -208,6 +249,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   uiState: "idle",
   errorMessage: null,
   errorDetail: null,
+  errorIssues: [],
 
   environment: null,
   profiles: [],
@@ -270,7 +312,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
       errorDetail: null,
     }),
 
-  clearError: () => set({ errorMessage: null, errorDetail: null }),
+  clearError: () =>
+    set({ errorMessage: null, errorDetail: null, errorIssues: [] }),
 
   bootstrap: async () => {
     const { client } = get();
@@ -400,13 +443,47 @@ export const useAppStore = create<AppStore>((set, get) => ({
           break;
         case "file_started":
           set((state) => ({
+            // Files are being processed, so the model is clearly ready —
+            // don't wait for a phase event to leave the loading state.
+            uiState:
+              state.uiState === "loading_model" || state.uiState === "scanning"
+                ? "analyzing"
+                : state.uiState,
             progress: {
               ...state.progress,
               currentFile: String(data.name ?? ""),
+              currentThumbnail: (data.thumbnail as string | null) ?? null,
+              currentMediaType:
+                (data.media_type as MediaType | undefined) ?? "image",
+              currentIndex: Number(data.index ?? 0),
+              // a fresh file starts with no sub-step and no result yet
+              stepLabel: null,
+              stepCurrent: 0,
+              stepTotal: 0,
+              lastResult: null,
             },
           }));
           break;
-        case "file_completed":
+        case "frame_progress":
+          set((state) => ({
+            progress: {
+              ...state.progress,
+              stepLabel: String(data.label ?? ""),
+              stepCurrent: Number(data.current ?? 0),
+              stepTotal: Number(data.total ?? 0),
+            },
+          }));
+          break;
+        case "file_completed": {
+          const result: LiveResult = {
+            name: String(data.name ?? ""),
+            status: (data.status as EntryStatus) ?? "success",
+            caption: (data.caption as string | null) ?? null,
+            category: (data.category as string | null) ?? null,
+            suggestedName: (data.suggested_name as string | null) ?? null,
+            error:
+              (data.error as { message?: string } | null)?.message ?? null,
+          };
           set((state) => ({
             progress: {
               ...state.progress,
@@ -414,9 +491,13 @@ export const useAppStore = create<AppStore>((set, get) => ({
                 state.progress.succeeded + (data.status === "success" ? 1 : 0),
               failed:
                 state.progress.failed + (data.status === "failed" ? 1 : 0),
+              stepLabel: null,
+              lastResult: result,
+              recent: [result, ...state.progress.recent].slice(0, RECENT_LIMIT),
             },
           }));
           break;
+        }
         case "progress":
           set((state) => ({
             progress: {
@@ -592,6 +673,8 @@ export const useAppStore = create<AppStore>((set, get) => ({
         uiState: "rename_failed",
         errorMessage: error instanceof Error ? error.message : "Rename failed.",
         errorDetail: error instanceof WorkerRequestError ? error.code : null,
+        errorIssues:
+          error instanceof WorkerRequestError ? error.details : [],
       });
       return null;
     }

@@ -5,6 +5,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -85,6 +86,13 @@ pub fn command_allowed(command: &str) -> bool {
 pub struct WorkerHandle {
     child: Child,
     stdin: Option<ChildStdin>,
+    /// Cleared when the worker's stdout reaches EOF.
+    ///
+    /// This is the reliable liveness signal. A virtualenv's `python.exe`
+    /// is a launcher that runs the real interpreter as a *separate*
+    /// process, so `Child::try_wait()` describes the launcher, not the
+    /// worker actually serving requests.
+    alive: Arc<AtomicBool>,
     pub executable: String,
 }
 
@@ -103,7 +111,9 @@ impl WorkerHandle {
     }
 
     pub fn is_running(&mut self) -> bool {
-        matches!(self.child.try_wait(), Ok(None))
+        // Only stdout closing proves the worker is gone; the launcher
+        // process exiting does not.
+        self.alive.load(Ordering::SeqCst) && !matches!(self.child.try_wait(), Ok(Some(_)))
     }
 
     /// Ask politely, then insist. Never leaves the child running.
@@ -180,6 +190,8 @@ where
         .ok_or_else(|| "worker stderr unavailable".to_string())?;
     let stdin = child.stdin.take();
 
+    let alive = Arc::new(AtomicBool::new(true));
+    let reader_alive = Arc::clone(&alive);
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines().map_while(Result::ok) {
@@ -196,6 +208,8 @@ where
                 }),
             }
         }
+        // stdout ended: the worker is really gone.
+        reader_alive.store(false, Ordering::SeqCst);
     });
 
     std::thread::spawn(move || {
@@ -208,6 +222,7 @@ where
     Ok(WorkerHandle {
         child,
         stdin,
+        alive,
         executable: executable.to_string(),
     })
 }
@@ -266,6 +281,17 @@ mod tests {
         assert_eq!(parsed["command"], "scan");
         assert_eq!(parsed["request_id"], "r1");
         assert_eq!(parsed["payload"]["directory"], "D:\\x");
+    }
+
+    #[test]
+    fn liveness_follows_stdout_not_the_launcher() {
+        // A venv python.exe is a launcher: it starts the real interpreter
+        // as another process and its own exit says nothing about the
+        // worker. Only stdout closing means the worker is gone.
+        let alive = Arc::new(AtomicBool::new(true));
+        assert!(alive.load(Ordering::SeqCst));
+        alive.store(false, Ordering::SeqCst);
+        assert!(!alive.load(Ordering::SeqCst));
     }
 
     #[test]

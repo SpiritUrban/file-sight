@@ -51,10 +51,19 @@ LIGHT_COMMANDS = {
 class WorkerError(Exception):
     """An error with a stable machine-readable code."""
 
-    def __init__(self, code: str, message: str, recoverable: bool = True) -> None:
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        recoverable: bool = True,
+        details: Optional[list] = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.recoverable = recoverable
+        # Concrete, per-file reasons the UI can list. A bare code tells the
+        # user something failed but not what to fix.
+        self.details = details or []
 
 
 class Emitter:
@@ -210,7 +219,7 @@ class Worker:
             self.emitter.emit(
                 request_id, "error",
                 {"code": exc.code, "message": str(exc),
-                 "recoverable": exc.recoverable},
+                 "recoverable": exc.recoverable, "details": exc.details},
             )
         except Exception as exc:  # never let a bug kill the worker
             log(f"unhandled error in {command}: {traceback.format_exc()}")
@@ -514,9 +523,23 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
     total = len(files)
 
     def on_start(index: int, total_files: int, path: Path) -> None:
+        # A preview is generated up front so the UI can show the file it is
+        # working on. It costs milliseconds next to captioning, and a
+        # failure here must never abort the scan.
+        thumbnail = None
+        try:
+            from filesight.thumbnails import make_thumbnail
+
+            created = make_thumbnail(
+                path, size=320, ffmpeg=tools.ffmpeg if tools else None
+            )
+            thumbnail = str(created) if created else None
+        except Exception:
+            thumbnail = None
         emit(request_id, "file_started",
              {"index": index, "total": total_files, "path": str(path),
-              "name": path.name})
+              "name": path.name, "thumbnail": thumbnail,
+              "media_type": "video" if is_video(path) else "image"})
 
     def on_done(index: int, total_files: int, entry) -> None:
         nonlocal completed_count
@@ -723,9 +746,14 @@ def cmd_apply_rename(worker: Worker, request_id: str, payload: dict) -> None:
         limit=payload.get("limit"),
     )
     if plan.errors:
+        first = plan.errors[0]
+        extra = (
+            f" (and {len(plan.errors) - 1} more)" if len(plan.errors) > 1 else ""
+        )
         raise WorkerError(
             "VALIDATION_FAILED",
-            "The rename plan has errors; nothing was changed.",
+            f"{first.message}{extra} Nothing was changed.",
+            details=_issue_dicts(plan.errors),
         )
     if not plan.renames:
         worker.emitter.emit(request_id, "completed",

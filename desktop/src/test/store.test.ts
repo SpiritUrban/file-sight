@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { MockWorkerClient, mockReport, MOCK_ENTRIES } from "@/lib/mockWorker";
-import { defaultScanOptions, isBusy, useAppStore } from "@/stores/appStore";
+import {
+  defaultScanOptions,
+  emptyProgress,
+  isBusy,
+  useAppStore,
+} from "@/stores/appStore";
 
 function freshStore(client = new MockWorkerClient()) {
   useAppStore.setState({
@@ -27,10 +32,7 @@ function freshStore(client = new MockWorkerClient()) {
     settings: null,
     environment: null,
     options: { ...defaultScanOptions, directory: "C:\\Photos" },
-    progress: {
-      phase: "", currentFile: null, completed: 0, total: 0,
-      percent: 0, succeeded: 0, failed: 0, startedAt: null,
-    },
+    progress: { ...emptyProgress },
   });
   return client;
 }
@@ -347,6 +349,84 @@ describe("validate, plan, rename and undo", () => {
     expect(state.dirty).toBe(true);
     expect(state.report!.files[0].suggested_name).toMatch(/^compact-/);
     expect(client.sent.some((s) => s.command === "scan" && s.payload.profile === "compact")).toBe(false);
+  });
+});
+
+describe("live analysis stage", () => {
+  it("tracks the current file, its preview and per-file steps", async () => {
+    const client = freshStore(new MockWorkerClient({ stepDelay: 5 }));
+    const seen: Array<{ file: string | null; thumb: string | null; step: string | null }> = [];
+    const unsubscribe = useAppStore.subscribe((state) => {
+      seen.push({
+        file: state.progress.currentFile,
+        thumb: state.progress.currentThumbnail,
+        step: state.progress.stepLabel,
+      });
+    });
+
+    await useAppStore.getState().startScan();
+    unsubscribe();
+
+    // every scanned file appeared as "current" at some point, with a preview
+    const files = seen.map((s) => s.file).filter(Boolean);
+    expect(files).toContain("IMG_0001.jpg");
+    expect(files).toContain("clip.mp4");
+    expect(seen.some((s) => s.thumb?.includes("IMG_0001.jpg"))).toBe(true);
+    // the video reported a sub-step
+    expect(seen.some((s) => s.step === "Analyzing frame")).toBe(true);
+    expect(client.sent.some((s) => s.command === "scan")).toBe(true);
+  });
+
+  it("records each result as it completes, newest first", async () => {
+    freshStore();
+    await useAppStore.getState().startScan();
+    const { recent, lastResult } = useAppStore.getState().progress;
+
+    expect(recent.length).toBeGreaterThan(1);
+    expect(recent[0].name).toBe("broken.png"); // last file processed
+    expect(recent[0].status).toBe("failed");
+    expect(recent[0].error).toContain("cannot identify");
+
+    const dog = recent.find((r) => r.name === "IMG_0001.jpg");
+    expect(dog?.suggestedName).toBe("animals-black-dog-running.jpg");
+    expect(dog?.category).toBe("animals");
+    expect(dog?.caption).toContain("black dog");
+    expect(lastResult?.name).toBe("broken.png");
+  });
+
+  it("never carries a previous file's result into the next one", async () => {
+    freshStore(new MockWorkerClient({ stepDelay: 2 }));
+    const snapshots: Array<{ file: string | null; result: string | null }> = [];
+    const unsubscribe = useAppStore.subscribe((state) =>
+      snapshots.push({
+        file: state.progress.currentFile,
+        result: state.progress.lastResult?.name ?? null,
+      }),
+    );
+    await useAppStore.getState().startScan();
+    unsubscribe();
+
+    // whenever a result is shown it belongs to the file being displayed,
+    // never to an earlier one
+    for (const snap of snapshots) {
+      if (snap.result) expect(snap.result).toBe(snap.file);
+    }
+  });
+
+  it("leaves the model-loading state as soon as a file starts", async () => {
+    freshStore(new MockWorkerClient({ stepDelay: 2 }));
+    const states: string[] = [];
+    const unsubscribe = useAppStore.subscribe((s) => states.push(s.uiState));
+    await useAppStore.getState().startScan();
+    unsubscribe();
+
+    // the mock emits "Loading model" and then goes straight to files, with
+    // no further phase event — the UI must still move on
+    expect(states).toContain("loading_model");
+    expect(states).toContain("analyzing");
+    expect(states.lastIndexOf("analyzing")).toBeGreaterThan(
+      states.indexOf("loading_model"),
+    );
   });
 });
 

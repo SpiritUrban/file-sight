@@ -91,15 +91,18 @@ fn get_environment_status(state: State<'_, AppState>) -> EnvironmentStatus {
     }
 }
 
-#[tauri::command]
-fn start_worker(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
-    {
-        let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
-        if let Some(handle) = guard.as_mut() {
-            if handle.is_running() {
-                return Ok(handle.executable.clone());
-            }
+/// Make sure a live worker exists, starting one if needed.
+///
+/// The lock is held for the whole check-and-spawn so two concurrent calls
+/// (React's StrictMode mounts effects twice in development) cannot each
+/// spawn an interpreter and then fight over which handle is kept.
+fn ensure_worker(app: &AppHandle, state: &State<'_, AppState>) -> Result<String, String> {
+    let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+    if let Some(handle) = guard.as_mut() {
+        if handle.is_running() {
+            return Ok(handle.executable.clone());
         }
+        log_line(state, "worker was not running; starting a new one");
         *guard = None;
     }
 
@@ -129,14 +132,19 @@ fn start_worker(app: AppHandle, state: State<'_, AppState>) -> Result<String, St
         },
     )?;
 
-    log_line(&state, &format!("worker started via {executable}"));
-    let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+    log_line(state, &format!("worker started via {executable}"));
     *guard = Some(handle);
     Ok(executable)
 }
 
 #[tauri::command]
+fn start_worker(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    ensure_worker(&app, &state)
+}
+
+#[tauri::command]
 fn send_worker_command(
+    app: AppHandle,
     state: State<'_, AppState>,
     request_id: String,
     command: String,
@@ -150,15 +158,39 @@ fn send_worker_command(
         &command,
         &payload.unwrap_or(Value::Object(Default::default())),
     );
+
+    // First attempt with whatever worker we have.
+    let failure = {
+        let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+        let mut reason = "worker not available".to_string();
+        if let Some(handle) = guard.as_mut() {
+            if handle.is_running() {
+                match handle.write_line(&line) {
+                    Ok(()) => return Ok(()),
+                    Err(err) => reason = err,
+                }
+            } else {
+                reason = "worker had stopped".to_string();
+            }
+        }
+        reason
+    };
+
+    // A worker can disappear between requests (crash, or a stale handle
+    // after a reload). Restart once and retry rather than dead-ending the
+    // user on an error they cannot act on.
+    log_line(
+        &state,
+        &format!("restarting worker after send failure: {failure}"),
+    );
+    ensure_worker(&app, &state)?;
     let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
     let handle = guard
         .as_mut()
-        .ok_or_else(|| "The analysis worker is not running.".to_string())?;
-    if !handle.is_running() {
-        *guard = None;
-        return Err("The analysis worker stopped unexpectedly.".to_string());
-    }
-    handle.write_line(&line)
+        .ok_or_else(|| "The analysis worker could not be started.".to_string())?;
+    handle.write_line(&line).map_err(|reason| {
+        format!("The analysis worker is not responding ({reason}).")
+    })
 }
 
 #[tauri::command]
