@@ -85,6 +85,26 @@ def build_suggested_name(caption: str, extension: str) -> str:
     return f"{build_stem(caption)}{extension}"
 
 
+class FinalNameAllocator:
+    """Deduplicates already-built base names within one report.
+
+    The first occurrence keeps its name; later duplicates get -002, -003.
+    Comparison is case-insensitive because Windows file names are.
+    """
+
+    def __init__(self, separator: str = "-") -> None:
+        self._counts: dict[str, int] = {}
+        self._separator = separator
+
+    def allocate(self, base: str, extension: str) -> str:
+        key = f"{base}{extension}".lower()
+        count = self._counts.get(key, 0) + 1
+        self._counts[key] = count
+        if count == 1:
+            return f"{base}{extension}"
+        return f"{base}{self._separator}{count:03d}{extension}"
+
+
 class NameAllocator:
     """Assigns stable, unique suggested names within one report.
 

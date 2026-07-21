@@ -1,0 +1,58 @@
+# FileSight configuration
+# Docs: docs/iteration-04.md — validate with: filesight config validate
+
+config_version = "1.0"
+default_profile = "photos"
+
+# ---------------------------------------------------------------------------
+# Profiles. A profile controls how one file name is built.
+# Template variables:
+#   {subject} {action} {location} {objects} {text} {category}
+#   {media_type} {date} {time} {year} {month} {day}
+#   {original_stem} {index} {caption} {width} {height} {duration}
+# Segments whose value is empty are dropped, so no dangling separators.
+# ---------------------------------------------------------------------------
+
+[profiles.photos]
+template = "{date}-{category}-{subject}-{location}"
+language = "en"                # en | uk
+separator = "-"                # - | _ | (space)
+case_style = "lower"           # lower | upper | title | preserve
+transliterate = false          # latinize Ukrainian output
+max_filename_length = 100      # 20..240, including the extension
+max_objects = 3
+max_caption_words = 8
+date_format = "%Y-%m-%d"
+time_format = "%H-%M-%S"
+index_start = 1
+index_padding = 3
+index_scope = "global"         # global | category | directory
+clean_original_stem = true     # drop IMG_1234 / DSC_0001 style stems
+
+[profiles.compact]
+template = "{subject}-{action}"
+language = "en"
+max_filename_length = 70
+
+# ---------------------------------------------------------------------------
+# Categories. These extend or override the built-in taxonomy.
+# Conditions: keywords_any, keywords_all, filename_contains,
+#             caption_contains, extensions, media_types, min_matches.
+# On a tie, the higher priority wins; then the earlier definition.
+# ---------------------------------------------------------------------------
+
+[categories.family]
+enabled = true
+priority = 120
+keywords_any = ["family", "children", "birthday", "home"]
+media_types = ["image", "video"]
+
+[categories.work]
+enabled = true
+priority = 110
+keywords_any = ["code", "terminal", "repository", "meeting", "dashboard"]
+media_types = ["image", "video"]
+
+# Disable a built-in category like this:
+# [categories.memes]
+# enabled = false

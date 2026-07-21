@@ -46,15 +46,18 @@ def test_pipeline_success_and_report_roundtrip(tmp_path: Path) -> None:
     write_report(report, output)
 
     data = json.loads(output.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.1"
+    assert data["schema_version"] == "1.3"
     assert data["recursive"] is False
     assert data["model"]["device"] == "cpu"
     assert data["summary"] == {
         "discovered": 2,
         "processed": 2,
         "failed": 0,
+        "skipped": 0,
         "duration_seconds": 1.23,
     }
+    assert data["files"][0]["media_type"] == "image"
+    assert "video_metadata" not in data["files"][0]
     assert data["files"][0]["caption"] == "a black dog in the snow"
     assert data["files"][0]["error"] is None
 

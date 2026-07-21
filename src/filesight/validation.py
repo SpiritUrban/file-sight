@@ -90,6 +90,95 @@ def check_suggested_name(name: str) -> list[tuple[str, str]]:
     return problems
 
 
+def _check_naming_sections(entry: dict) -> list[tuple[str, str]]:
+    """Structural checks for the optional features/classification/naming.
+
+    Missing sections are fine (older reports); malformed ones are not.
+    """
+    problems: list[tuple[str, str]] = []
+
+    features = entry.get("features")
+    if features is not None:
+        if not isinstance(features, dict):
+            problems.append(("INVALID_FEATURES", "'features' must be an object."))
+        else:
+            for key in ("subject", "action", "location", "text"):
+                value = features.get(key)
+                if value is not None and not isinstance(value, str):
+                    problems.append(
+                        ("INVALID_FEATURES", f"features.{key} must be a string or null.")
+                    )
+            objects = features.get("objects")
+            if objects is not None and (
+                not isinstance(objects, list)
+                or not all(isinstance(o, str) for o in objects)
+            ):
+                problems.append(
+                    ("INVALID_FEATURES", "features.objects must be a list of strings.")
+                )
+
+    classification = entry.get("classification")
+    if classification is not None:
+        if not isinstance(classification, dict):
+            problems.append(
+                ("INVALID_CLASSIFICATION", "'classification' must be an object.")
+            )
+        else:
+            category = classification.get("category")
+            if not isinstance(category, str) or not category.strip():
+                problems.append(
+                    ("INVALID_CLASSIFICATION", "classification.category must be a name.")
+                )
+            confidence = classification.get("confidence")
+            if confidence is not None and (
+                not isinstance(confidence, (int, float))
+                or isinstance(confidence, bool)
+                or not 0.0 <= float(confidence) <= 1.0
+            ):
+                problems.append(
+                    (
+                        "INVALID_CLASSIFICATION",
+                        "classification.confidence must be a number in 0..1.",
+                    )
+                )
+
+    naming = entry.get("naming")
+    if naming is not None:
+        if not isinstance(naming, dict):
+            problems.append(("INVALID_NAMING", "'naming' must be an object."))
+        else:
+            base = naming.get("base_name")
+            if base is not None and not isinstance(base, str):
+                problems.append(("INVALID_NAMING", "naming.base_name must be a string."))
+            elif isinstance(base, str) and ("/" in base or "\\" in base):
+                problems.append(
+                    ("INVALID_NAMING", f"naming.base_name must not contain a path: {base}")
+                )
+            inner = naming.get("suggested_name")
+            outer = entry.get("suggested_name")
+    return problems
+
+
+def _naming_warnings(entry: dict) -> list[tuple[str, str]]:
+    """Non-fatal observations about the naming section."""
+    naming = entry.get("naming")
+    if not isinstance(naming, dict):
+        return []
+    inner = naming.get("suggested_name")
+    outer = entry.get("suggested_name")
+    if isinstance(inner, str) and isinstance(outer, str) and inner != outer:
+        # Editing the top-level name by hand is a supported workflow, so
+        # this is informational only: rename always uses the top-level one.
+        return [
+            (
+                "NAMING_EDITED",
+                "Top-level suggested_name differs from naming.suggested_name "
+                f"({outer!r} vs {inner!r}); rename will use the top-level value.",
+            )
+        ]
+    return []
+
+
 def evaluate_entry(index: int, entry: dict) -> EntryEvaluation:
     """Validate one report entry and compute its effective target name.
 
@@ -116,6 +205,30 @@ def evaluate_entry(index: int, entry: dict) -> EntryEvaluation:
     if result.has_errors:
         return result
     result.original_name = original_name
+
+    # media_type is optional; missing means image (backward compatible).
+    media_type = entry.get("media_type", "image")
+    if media_type not in ("image", "video"):
+        result.issues.append(
+            _error(
+                "UNSUPPORTED_MEDIA_TYPE",
+                f"Unsupported media_type: {media_type!r}.",
+                original_path,
+                index,
+            )
+        )
+        return result
+
+    # Iteration-4 sections are optional; when present they must be sane.
+    # Their absence never invalidates an older report.
+    for code, message in _check_naming_sections(entry):
+        result.issues.append(_error(code, message, original_path, index))
+    for code, message in _naming_warnings(entry):
+        result.issues.append(
+            ValidationIssue("warning", code, message, original_path, index)
+        )
+    if result.has_errors:
+        return result
 
     status = entry.get("status")
     if status != "success":

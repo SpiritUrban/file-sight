@@ -5,11 +5,15 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from filesight.models import (
+    MEDIA_VIDEO,
+    NamingConfiguration,
     SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
     FileEntry,
+    MediaCounts,
     ModelInfo,
     Report,
     Summary,
@@ -57,6 +61,15 @@ def load_report_dict(report_path: Path) -> dict:
     return data
 
 
+def _counts_for(entries: list[FileEntry]) -> MediaCounts:
+    return MediaCounts(
+        discovered=len(entries),
+        processed=sum(1 for e in entries if e.status == "success"),
+        failed=sum(1 for e in entries if e.status == "failed"),
+        skipped=sum(1 for e in entries if e.status == "skipped"),
+    )
+
+
 def build_report(
     source_directory: Path,
     recursive: bool,
@@ -64,9 +77,20 @@ def build_report(
     entries: list[FileEntry],
     discovered: int,
     duration_seconds: float,
+    videos_enabled: bool = False,
+    naming_configuration: Optional["NamingConfiguration"] = None,
 ) -> Report:
     processed = sum(1 for e in entries if e.status == "success")
     failed = sum(1 for e in entries if e.status == "failed")
+    skipped = sum(1 for e in entries if e.status == "skipped")
+
+    images = videos = None
+    if videos_enabled:
+        image_entries = [e for e in entries if e.media_type != MEDIA_VIDEO]
+        video_entries = [e for e in entries if e.media_type == MEDIA_VIDEO]
+        images = _counts_for(image_entries)
+        videos = _counts_for(video_entries)
+
     return Report(
         schema_version=SCHEMA_VERSION,
         created_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -77,9 +101,13 @@ def build_report(
             discovered=discovered,
             processed=processed,
             failed=failed,
+            skipped=skipped,
             duration_seconds=round(duration_seconds, 2),
+            images=images,
+            videos=videos,
         ),
         files=entries,
+        naming_configuration=naming_configuration,
     )
 
 

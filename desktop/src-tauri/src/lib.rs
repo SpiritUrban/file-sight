@@ -1,0 +1,262 @@
+//! FileSight desktop shell.
+//!
+//! Rust owns the Python worker process; the frontend can only send
+//! whitelisted commands and receives events through a Tauri event channel.
+
+pub mod python;
+pub mod settings;
+pub mod worker;
+
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use serde::Serialize;
+use serde_json::Value;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+use settings::AppSettings;
+use worker::{SharedWorker, WorkerEvent};
+
+pub struct AppState {
+    pub worker: SharedWorker,
+    pub config_dir: Mutex<PathBuf>,
+    pub log_dir: Mutex<PathBuf>,
+    pub repo_root: Mutex<Option<PathBuf>>,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            worker: Arc::new(Mutex::new(None)),
+            config_dir: Mutex::new(PathBuf::from(".")),
+            log_dir: Mutex::new(PathBuf::from(".")),
+            repo_root: Mutex::new(None),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct EnvironmentStatus {
+    pub python: python::PythonInfo,
+    pub worker_running: bool,
+    pub repo_root: Option<String>,
+}
+
+fn log_line(state: &AppState, line: &str) {
+    if let Ok(dir) = state.log_dir.lock() {
+        settings::append_log(&dir, &settings::truncate_for_log(line, 400));
+    }
+}
+
+/// Walk up from the executable/cwd looking for the Python package.
+fn detect_repo_root() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            candidates.push(parent.to_path_buf());
+        }
+    }
+    for start in candidates {
+        let mut current: Option<&std::path::Path> = Some(start.as_path());
+        while let Some(dir) = current {
+            if dir.join("src").join("filesight").join("worker.py").is_file() {
+                return Some(dir.to_path_buf());
+            }
+            current = dir.parent();
+        }
+    }
+    None
+}
+
+#[tauri::command]
+fn get_environment_status(state: State<'_, AppState>) -> EnvironmentStatus {
+    let repo_root = state.repo_root.lock().ok().and_then(|r| r.clone());
+    let configured = {
+        let dir = state.config_dir.lock().unwrap().clone();
+        settings::load(&settings::settings_file(&dir)).python_path
+    };
+    let info = python::resolve(configured.as_deref(), repo_root.as_deref());
+    let worker_running = state
+        .worker
+        .lock()
+        .map(|guard| guard.is_some())
+        .unwrap_or(false);
+    EnvironmentStatus {
+        python: info,
+        worker_running,
+        repo_root: repo_root.map(|p| p.to_string_lossy().into_owned()),
+    }
+}
+
+#[tauri::command]
+fn start_worker(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+    {
+        let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+        if let Some(handle) = guard.as_mut() {
+            if handle.is_running() {
+                return Ok(handle.executable.clone());
+            }
+        }
+        *guard = None;
+    }
+
+    let repo_root = state.repo_root.lock().ok().and_then(|r| r.clone());
+    let configured = {
+        let dir = state.config_dir.lock().unwrap().clone();
+        settings::load(&settings::settings_file(&dir)).python_path
+    };
+    let info = python::resolve(configured.as_deref(), repo_root.as_deref());
+    let executable = info
+        .executable
+        .clone()
+        .ok_or_else(|| info.message.unwrap_or_else(|| "Python not found".into()))?;
+
+    let event_app = app.clone();
+    let log_app = app.clone();
+    let handle = worker::spawn(
+        &executable,
+        repo_root.as_deref(),
+        move |event: WorkerEvent| {
+            let _ = event_app.emit("worker-event", event);
+        },
+        move |line: String| {
+            if let Some(state) = log_app.try_state::<AppState>() {
+                log_line(&state, &format!("worker stderr: {line}"));
+            }
+        },
+    )?;
+
+    log_line(&state, &format!("worker started via {executable}"));
+    let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+    *guard = Some(handle);
+    Ok(executable)
+}
+
+#[tauri::command]
+fn send_worker_command(
+    state: State<'_, AppState>,
+    request_id: String,
+    command: String,
+    payload: Option<Value>,
+) -> Result<(), String> {
+    if !worker::command_allowed(&command) {
+        return Err(format!("Command '{command}' is not allowed."));
+    }
+    let line = worker::build_request_line(
+        &request_id,
+        &command,
+        &payload.unwrap_or(Value::Object(Default::default())),
+    );
+    let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+    let handle = guard
+        .as_mut()
+        .ok_or_else(|| "The analysis worker is not running.".to_string())?;
+    if !handle.is_running() {
+        *guard = None;
+        return Err("The analysis worker stopped unexpectedly.".to_string());
+    }
+    handle.write_line(&line)
+}
+
+#[tauri::command]
+fn stop_worker(state: State<'_, AppState>) -> Result<(), String> {
+    let mut guard = state.worker.lock().map_err(|_| "worker lock poisoned")?;
+    if let Some(mut handle) = guard.take() {
+        handle.shutdown(std::time::Duration::from_secs(5));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_app_settings(state: State<'_, AppState>) -> AppSettings {
+    let dir = state.config_dir.lock().unwrap().clone();
+    settings::load(&settings::settings_file(&dir))
+}
+
+#[tauri::command]
+fn save_app_settings(
+    state: State<'_, AppState>,
+    settings_value: AppSettings,
+) -> Result<(), String> {
+    let dir = state.config_dir.lock().unwrap().clone();
+    settings::save(&settings::settings_file(&dir), &settings_value)
+}
+
+#[tauri::command]
+fn get_log_directory(state: State<'_, AppState>) -> String {
+    state
+        .log_dir
+        .lock()
+        .map(|d| d.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+fn get_thumbnail_cache_dir() -> String {
+    std::env::temp_dir()
+        .join("filesight-thumbnails")
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[tauri::command]
+fn log_message(state: State<'_, AppState>, message: String) {
+    log_line(&state, &format!("ui: {message}"));
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(AppState::default())
+        .setup(|app| {
+            let state = app.state::<AppState>();
+            if let Ok(dir) = app.path().app_config_dir() {
+                *state.config_dir.lock().unwrap() = dir;
+            }
+            if let Ok(dir) = app.path().app_log_dir() {
+                *state.log_dir.lock().unwrap() = dir;
+            }
+            *state.repo_root.lock().unwrap() = detect_repo_root();
+
+            // Thumbnails live in a dedicated temp folder; allow reading them.
+            let cache = std::env::temp_dir().join("filesight-thumbnails");
+            let _ = std::fs::create_dir_all(&cache);
+            let _ = app.asset_protocol_scope().allow_directory(&cache, false);
+
+            log_line(
+                &state,
+                &format!("FileSight desktop {} starting", env!("CARGO_PKG_VERSION")),
+            );
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_environment_status,
+            start_worker,
+            send_worker_command,
+            stop_worker,
+            get_app_settings,
+            save_app_settings,
+            get_log_directory,
+            get_thumbnail_cache_dir,
+            log_message,
+        ])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Never leave a Python process behind.
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(mut guard) = state.worker.lock() {
+                        if let Some(mut handle) = guard.take() {
+                            handle.shutdown(std::time::Duration::from_secs(3));
+                        }
+                    }
+                }
+            }
+        })
+        .run(tauri::generate_context!())
+        .expect("error while running FileSight");
+}

@@ -19,6 +19,13 @@ filesight-report.json
 # Local test data
 test-images/
 
+# Desktop (Tauri + React)
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/app-icon.png
+
 # OS
 Thumbs.db
 .DS_Store

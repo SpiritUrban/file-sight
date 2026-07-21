@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  @apply bg-slate-100 text-slate-900 antialiased;
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  margin: 0;
+  overflow: hidden;
+}
+
+/* Focus must always be visible for keyboard users. */
+@layer base {
+  :focus-visible {
+    @apply outline-none ring-2 ring-blue-600 ring-offset-1 ring-offset-white;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium
+           transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-blue-600 text-white hover:bg-blue-700 disabled:hover:bg-blue-600;
+  }
+  .btn-secondary {
+    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+  }
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+  .field {
+    @apply rounded-md border border-slate-300 bg-white px-2 py-1 text-sm
+           focus:border-blue-500;
+  }
+  .panel {
+    @apply rounded-lg border border-slate-200 bg-white;
+  }
+}
