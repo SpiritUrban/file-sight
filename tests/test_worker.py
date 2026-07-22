@@ -440,7 +440,7 @@ def test_list_backends_command(worker) -> None:
     instance, events = worker
     run(instance, "list_backends")
     ids = {b["backend_id"] for b in events.last()["data"]["backends"]}
-    assert ids == {"onnx-directml", "onnx-cpu", "pytorch-cpu"}
+    assert ids == {"onnx-cuda", "onnx-directml", "onnx-cpu", "pytorch-cpu"}
 
 
 def test_test_backend_command_returns_diagnostics(worker) -> None:

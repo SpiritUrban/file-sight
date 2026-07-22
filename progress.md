@@ -10,6 +10,37 @@ ONNX-captioning, offline installer, clean-machine test). За узгодженн
 DirectML на RX 580**; пакувальні критерії свідомо відкладені й чесно
 позначені як обмеження (див. нижче та `docs/iteration-06.md`).
 
+## Що зроблено (ітерація 6, сесія 2 — три бекенди + автовибір)
+
+- Доданий **`onnx-cuda` (NVIDIA)** — четвертий бекенд поряд із
+  `onnx-directml`, `onnx-cpu`, `pytorch-cpu`.
+- **Справжній пріоритетний автовибір** (`select_auto_backend`):
+  CUDA → DirectML → ONNX CPU → PyTorch CPU. Раніше `auto` був жорстко
+  зашитий на `pytorch-cpu`; тепер це результат обходу пріоритету.
+- Введено **`can_caption()`** окремо від `is_available()`. Автовибір бере
+  лише той бекенд, який *і доступний, і вміє робити підписи*, тому він
+  фізично не може обрати пристрій, що потім перекине роботу на інший.
+- Кожен кандидат потрапляє у звіт (`considered`) із причиною, чому його
+  взяли або пропустили — UI не здогадується, а читає.
+- `detect_gpu_name(vendor)` із фільтром вендора: **CUDA-бекенд ніколи не
+  підписується чужою відеокартою** (RX 580 не стане «CUDA device»).
+- UI: п'ять варіантів у Settings (Auto / NVIDIA / AMD-Intel / CPU ONNX /
+  CPU PyTorch), у статус-барі пілюля **GPU** називає наявний прискорювач
+  і API, який ним керує.
+- Benchmark для `auto` більше не зашитий на DirectML — бере найкращий
+  наявний прискорювач.
+
+**Стан і далі чесний:** `can_caption()` у всіх ONNX-бекендів повертає
+`False`, бо caption-моделі в ONNX немає. Тому `auto` на цій машині
+свідомо зупиняється на `pytorch-cpu` — і пише чому. Коли з'явиться
+ONNX-експорт, перемикач один: `can_caption() → True`, і автовибір сам
+почне брати GPU (є тест, який це доводить через monkeypatch).
+
+**NVIDIA не перевірена на залізі** — тут RX 580. Код і автовизначення
+написані, `is_available()` чесно повертає False, `test_backend` каже
+«CUDAExecutionProvider is not available». Статус: *написано, не
+підтверджено на реальному NVIDIA GPU*.
+
 ## Що зроблено (ітерація 6, сесія 1)
 
 - Абстракція `InferenceBackend` (`src/filesight/inference/`): base, registry,
@@ -47,9 +78,9 @@ Cargo синхронізовано).
 
 | Набір | Результат |
 | --- | --- |
-| Python (pytest) | **401 passed, 1 skipped** (skip = тест DirectML-unavailable, бо DML доступний) |
-| React (vitest) | **84 passed** |
-| Rust (cargo test) | **26 passed** |
+| Python (pytest) | **412 passed, 2 skipped** (skip'и = тести для «DirectML недоступний» і «CUDA доступна» — жоден не є прихованим провалом) |
+| React (vitest) | **85 passed** |
+| Rust (cargo test) | **27 passed** |
 
 Нове: `tests/test_inference.py` (реєстр, вибір, fallback, self-test,
 benchmark, session reuse — DirectML-тести skip'аються без GPU), worker-тести
@@ -81,9 +112,13 @@ captioning-модель була б на користь GPU, але вона щ�
 
 ## Відомі обмеження (чесно)
 
-1. **Captioning не на DirectML** — модель ще не експортована в ONNX; реальний
-   scan завжди `actual_backend: pytorch-cpu`. DirectML перевірено лише
-   self-test/benchmark. Це навмисно й чесно відображено в звіті/UI.
+1. **Captioning не на GPU** — модель ще не експортована в ONNX; реальний
+   scan завжди `actual_backend: pytorch-cpu`, хоч би який бекенд обрали.
+   DirectML перевірено лише self-test/benchmark. Це навмисно й чесно
+   відображено в звіті (`considered`, `fallback_reason`) та UI.
+1a. **NVIDIA/CUDA написана, але не перевірена на залізі** — у цій машині
+   немає NVIDIA GPU, а `onnxruntime-directml` не містить CUDA-провайдера.
+   Не вважати робочою, поки не буде запуску на реальній NVIDIA.
 2. **Немає bundled Python / offline installer / clean-machine smoke test** у
    цій сесії — worker досі потребує встановленого Python (як в іт.5).
    PyInstaller-бандл, model pack, offline NSIS — наступний крок

@@ -145,6 +145,17 @@ export const reportSchema = z.object({
       fallback_occurred: z.boolean().default(false),
       fallback_reason: z.string().nullable().optional(),
       directml_available: z.boolean().default(false),
+      cuda_available: z.boolean().default(false),
+      considered: z
+        .array(
+          z.object({
+            backend_id: z.string(),
+            available: z.boolean(),
+            can_caption: z.boolean(),
+            reason: z.string(),
+          }),
+        )
+        .optional(),
     })
     .nullable()
     .optional(),

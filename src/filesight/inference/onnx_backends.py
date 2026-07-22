@@ -20,6 +20,7 @@ from PIL import Image
 
 from filesight.inference.base import (
     BACKEND_ONNX_CPU,
+    BACKEND_ONNX_CUDA,
     BACKEND_ONNX_DIRECTML,
     RUNTIME_ONNX,
     BackendDiagnostics,
@@ -29,6 +30,7 @@ from filesight.inference.base import (
 )
 
 DML_PROVIDER = "DmlExecutionProvider"
+CUDA_PROVIDER = "CUDAExecutionProvider"
 CPU_PROVIDER = "CPUExecutionProvider"
 
 # A tiny (32x32 MatMul+Add) model, embedded so the self-test needs no
@@ -169,6 +171,12 @@ class OnnxBackend:
             return False
         return self.provider in ort.get_available_providers()
 
+    def can_caption(self) -> bool:
+        # No ONNX caption model exists yet, so no ONNX backend may be picked
+        # for a real scan. Flipping this to True is the single switch that
+        # lets auto-selection choose a GPU once the export lands.
+        return False
+
     # -- session -----------------------------------------------------------
 
     def _model_bytes(self) -> bytes:
@@ -283,10 +291,29 @@ class OnnxDirectMlBackend(OnnxBackend):
     backend_id = BACKEND_ONNX_DIRECTML
 
     def _device_name(self) -> Optional[str]:
-        # Only claim a device when DirectML is genuinely usable.
+        # Only claim a device when DirectML is genuinely usable. DirectML
+        # drives whatever adapter the desktop is on, so no vendor filter.
         if not self.is_available():
             return None
         return detect_gpu_name()
+
+
+class OnnxCudaBackend(OnnxBackend):
+    """NVIDIA path. Requires an onnxruntime build with CUDA support.
+
+    The stock `onnxruntime-directml` wheel does not carry CUDA, so on this
+    project's machine `is_available()` is False and the backend reports that
+    plainly instead of pretending. See docs/iteration-06.md.
+    """
+
+    provider = CUDA_PROVIDER
+    backend_id = BACKEND_ONNX_CUDA
+
+    def _device_name(self) -> Optional[str]:
+        if not self.is_available():
+            return None
+        # Never borrow another vendor's adapter name.
+        return detect_gpu_name("nvidia")
 
 
 def _ort_version_safe() -> Optional[str]:

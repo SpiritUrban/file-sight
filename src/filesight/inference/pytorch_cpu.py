@@ -42,6 +42,10 @@ class PyTorchCpuBackend:
             return False
         return True
 
+    def can_caption(self) -> bool:
+        # The only backend with a real caption model today.
+        return self.is_available()
+
     def initialize(self) -> None:
         if self._model is not None:
             return

@@ -142,6 +142,16 @@ export interface InferenceInfo {
   fallback_occurred: boolean;
   fallback_reason: string | null;
   directml_available: boolean;
+  cuda_available?: boolean;
+  /** Every candidate auto weighed, in priority order, with the reason. */
+  considered?: BackendCandidate[];
+}
+
+export interface BackendCandidate {
+  backend_id: string;
+  available: boolean;
+  can_caption: boolean;
+  reason: string;
 }
 
 export interface ScanReport {
@@ -156,7 +166,21 @@ export interface ScanReport {
   inference?: InferenceInfo | null;
 }
 
-export type BackendId = "auto" | "onnx-directml" | "onnx-cpu" | "pytorch-cpu";
+export type BackendId =
+  | "auto"
+  | "onnx-cuda"
+  | "onnx-directml"
+  | "onnx-cpu"
+  | "pytorch-cpu";
+
+/** Order shown in Settings; mirrors BACKEND_PRIORITY in Python. */
+export const BACKEND_OPTIONS: Array<{ id: BackendId; label: string }> = [
+  { id: "auto", label: "Automatic (best available)" },
+  { id: "onnx-cuda", label: "NVIDIA GPU (CUDA)" },
+  { id: "onnx-directml", label: "AMD / Intel GPU (DirectML)" },
+  { id: "onnx-cpu", label: "CPU (ONNX Runtime)" },
+  { id: "pytorch-cpu", label: "CPU (PyTorch)" },
+];
 
 export interface BackendDiagnostics {
   backend_id: string;
@@ -191,9 +215,21 @@ export interface BenchmarkResult {
 }
 
 export interface InferenceEnvironment {
-  backends: Array<{ backend_id: string; available: boolean }>;
+  backends: Array<{
+    backend_id: string;
+    label?: string;
+    available: boolean;
+    can_caption?: boolean;
+    error?: string | null;
+  }>;
   directml_available: boolean;
+  cuda_available?: boolean;
   gpu_name: string | null;
+  cuda_device_name?: string | null;
+  adapters?: string[];
+  /** What "auto" would choose right now, and why each was ranked so. */
+  auto_backend?: string | null;
+  auto_considered?: BackendCandidate[];
   error?: string;
 }
 

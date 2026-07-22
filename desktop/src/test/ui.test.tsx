@@ -640,13 +640,26 @@ describe("accessibility and safety", () => {
 });
 
 describe("inference backend UI", () => {
-  it("shows DirectML and the GPU name in the environment bar", async () => {
+  it("names the available accelerator in the environment bar", async () => {
     setup();
     render(<App />);
-    await waitFor(() =>
-      expect(screen.getByText(/DirectML:/)).toBeInTheDocument(),
-    );
-    expect(screen.getByText("Radeon RX 580 Series")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/GPU:/)).toBeInTheDocument());
+    // The adapter is named, and attributed to the API that can drive it.
+    expect(
+      screen.getByText(/DirectML · Radeon RX 580 Series/),
+    ).toBeInTheDocument();
+  });
+
+  it("does not present an available GPU as the captioning device", async () => {
+    await scanned();
+    render(<App />);
+    await screen.findByText("IMG_0001.jpg");
+    // The bar may advertise the GPU, but the backend that ran is CPU and
+    // the two claims must not be merged into "captioning on GPU".
+    expect(screen.getByText(/GPU:/)).toBeInTheDocument();
+    expect(screen.getByText(/Inference: pytorch-cpu/)).toBeInTheDocument();
+    expect(screen.queryByText(/Inference: onnx-directml/)).toBeNull();
+    expect(screen.queryByText(/Inference: onnx-cuda/)).toBeNull();
   });
 
   it("shows the actual backend on the report footer, honestly", async () => {
@@ -664,11 +677,17 @@ describe("inference backend UI", () => {
     await user.click(await screen.findByRole("button", { name: /settings/i }));
     const dialog = await screen.findByRole("dialog", { name: /settings/i });
 
-    // the inference section with the four backend choices
+    // the inference section offers CPU, AMD/Intel and NVIDIA paths
     expect(within(dialog).getByText("Inference")).toBeInTheDocument();
-    expect(
-      within(dialog).getByRole("option", { name: "ONNX Runtime DirectML" }),
-    ).toBeInTheDocument();
+    for (const label of [
+      "Auto (best available)",
+      "NVIDIA GPU (CUDA)",
+      "AMD / Intel GPU (DirectML)",
+      "CPU (ONNX Runtime)",
+      "CPU (PyTorch)",
+    ]) {
+      expect(within(dialog).getByRole("option", { name: label })).toBeInTheDocument();
+    }
 
     await user.click(within(dialog).getByRole("button", { name: /test backend/i }));
     await waitFor(() =>

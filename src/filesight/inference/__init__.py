@@ -9,8 +9,11 @@ reported honestly.
 
 from filesight.inference.base import (
     BACKEND_AUTO,
+    BACKEND_LABELS,
     BACKEND_ONNX_CPU,
+    BACKEND_ONNX_CUDA,
     BACKEND_ONNX_DIRECTML,
+    BACKEND_PRIORITY,
     BACKEND_PYTORCH_CPU,
     KNOWN_BACKENDS,
     BackendDiagnostics,
@@ -22,13 +25,17 @@ from filesight.inference.registry import (
     available_backends,
     benchmark_backend,
     resolve_backend,
+    select_auto_backend,
     test_backend,
 )
 
 __all__ = [
     "BACKEND_AUTO",
+    "BACKEND_LABELS",
     "BACKEND_ONNX_CPU",
+    "BACKEND_ONNX_CUDA",
     "BACKEND_ONNX_DIRECTML",
+    "BACKEND_PRIORITY",
     "BACKEND_PYTORCH_CPU",
     "KNOWN_BACKENDS",
     "BackendDiagnostics",
@@ -38,5 +45,6 @@ __all__ = [
     "available_backends",
     "benchmark_backend",
     "resolve_backend",
+    "select_auto_backend",
     "test_backend",
 ]

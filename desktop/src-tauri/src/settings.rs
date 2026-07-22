@@ -128,6 +128,18 @@ mod tests {
     }
 
     #[test]
+    fn cuda_backend_choice_persists() {
+        // The NVIDIA choice must survive a restart even on a machine that
+        // has no NVIDIA card; Python decides availability, not this layer.
+        let dir = temp_dir("settings-cuda");
+        let path = settings_file(&dir);
+        let mut settings = AppSettings::default();
+        settings.backend = "onnx-cuda".to_string();
+        save(&path, &settings).unwrap();
+        assert_eq!(load(&path).backend, "onnx-cuda");
+    }
+
+    #[test]
     fn save_then_load_round_trips() {
         let dir = temp_dir("settings-roundtrip");
         let path = settings_file(&dir);

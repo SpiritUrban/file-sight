@@ -168,8 +168,38 @@ export function mockReport(files: ScanFileEntry[] = MOCK_ENTRIES): ScanReport {
       model_id: "Salesforce/blip-image-captioning-base",
       model_version: null,
       fallback_occurred: false,
-      fallback_reason: null,
+      fallback_reason:
+        "onnx-directml, onnx-cpu available but skipped: no caption model for " +
+        "this runtime yet (the model is not exported to ONNX), so it cannot " +
+        "run a scan. See docs/iteration-06.md.",
       directml_available: true,
+      cuda_available: false,
+      considered: [
+        {
+          backend_id: "onnx-cuda",
+          available: false,
+          can_caption: false,
+          reason: "runtime/provider not available on this machine",
+        },
+        {
+          backend_id: "onnx-directml",
+          available: true,
+          can_caption: false,
+          reason: "no caption model for this runtime yet",
+        },
+        {
+          backend_id: "onnx-cpu",
+          available: true,
+          can_caption: false,
+          reason: "no caption model for this runtime yet",
+        },
+        {
+          backend_id: "pytorch-cpu",
+          available: true,
+          can_caption: true,
+          reason: "selected",
+        },
+      ],
     },
   };
 }
@@ -261,12 +291,37 @@ export class MockWorkerClient extends BaseWorkerClient {
           config: { ok: true, source: "built-in", default_profile: "default" },
           inference: {
             backends: [
-              { backend_id: "onnx-directml", available: true },
-              { backend_id: "onnx-cpu", available: true },
-              { backend_id: "pytorch-cpu", available: true },
+              {
+                backend_id: "onnx-cuda",
+                label: "NVIDIA GPU (CUDA)",
+                available: false,
+                can_caption: false,
+              },
+              {
+                backend_id: "onnx-directml",
+                label: "AMD / Intel GPU (DirectML)",
+                available: true,
+                can_caption: false,
+              },
+              {
+                backend_id: "onnx-cpu",
+                label: "CPU (ONNX Runtime)",
+                available: true,
+                can_caption: false,
+              },
+              {
+                backend_id: "pytorch-cpu",
+                label: "CPU (PyTorch)",
+                available: true,
+                can_caption: true,
+              },
             ],
             directml_available: true,
+            cuda_available: false,
             gpu_name: "Radeon RX 580 Series",
+            cuda_device_name: null,
+            adapters: ["Radeon RX 580 Series"],
+            auto_backend: "pytorch-cpu",
           },
         });
 

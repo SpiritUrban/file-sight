@@ -10,16 +10,38 @@ from PIL import Image
 # Stable internal backend identifiers. Never use vague labels like "gpu",
 # "fast" or "best" — the UI must be able to state exactly what ran.
 BACKEND_AUTO = "auto"
+BACKEND_ONNX_CUDA = "onnx-cuda"
 BACKEND_ONNX_DIRECTML = "onnx-directml"
 BACKEND_ONNX_CPU = "onnx-cpu"
 BACKEND_PYTORCH_CPU = "pytorch-cpu"
 
 # Concrete backends (excludes "auto", which selects one of these).
 KNOWN_BACKENDS = (
+    BACKEND_ONNX_CUDA,
     BACKEND_ONNX_DIRECTML,
     BACKEND_ONNX_CPU,
     BACKEND_PYTORCH_CPU,
 )
+
+# Preference order for ``auto``: fastest-in-principle first. Auto only ever
+# picks a backend that is both available *and* able to caption, so this
+# order expresses intent, never a claim about what actually ran.
+BACKEND_PRIORITY = (
+    BACKEND_ONNX_CUDA,
+    BACKEND_ONNX_DIRECTML,
+    BACKEND_ONNX_CPU,
+    BACKEND_PYTORCH_CPU,
+)
+
+# Human labels for the UI. Vendor names appear only where the vendor's
+# runtime is genuinely what executes.
+BACKEND_LABELS = {
+    BACKEND_AUTO: "Automatic (best available)",
+    BACKEND_ONNX_CUDA: "NVIDIA GPU (CUDA)",
+    BACKEND_ONNX_DIRECTML: "AMD / Intel GPU (DirectML)",
+    BACKEND_ONNX_CPU: "CPU (ONNX Runtime)",
+    BACKEND_PYTORCH_CPU: "CPU (PyTorch)",
+}
 
 # Runtime family names reported to the UI.
 RUNTIME_PYTORCH = "pytorch"
@@ -70,6 +92,16 @@ class InferenceBackend(Protocol):
         """Cheap check: could this backend run here at all? No model load."""
         ...
 
+    def can_caption(self) -> bool:
+        """Can this backend actually produce captions right now?
+
+        Separate from ``is_available`` on purpose: an ONNX backend's runtime
+        can be perfectly available while no caption model exists for it. Auto
+        selection requires both, so it can never pick a backend that would
+        then have to silently hand the work to someone else.
+        """
+        ...
+
     def initialize(self) -> None:
         """Create sessions and load the model. May be slow; may raise."""
         ...
@@ -99,18 +131,18 @@ class BackendError(Exception):
         self.code = code
 
 
-def detect_gpu_name() -> Optional[str]:
-    """Best-effort adapter name via Win32, so we never invent a device.
+def detect_gpu_names() -> list[str]:
+    """Every display adapter name Win32 reports, desktop-attached first.
 
-    Returns the primary display adapter's name (e.g. "Radeon RX 580
-    Series") or None when it cannot be read.
+    Best effort and read-only: we only ever report names the OS gave us, so
+    a device name in the UI is never invented.
     """
     import ctypes
 
     try:
         user32 = ctypes.windll.user32
     except (AttributeError, OSError):
-        return None
+        return []
 
     class DISPLAY_DEVICEW(ctypes.Structure):
         _fields_ = [
@@ -122,7 +154,9 @@ def detect_gpu_name() -> Optional[str]:
             ("DeviceKey", ctypes.c_wchar * 128),
         ]
 
-    best: Optional[str] = None
+    attached: list[str] = []
+    others: list[str] = []
+    seen: set[str] = set()
     index = 0
     while True:
         device = DISPLAY_DEVICEW()
@@ -131,10 +165,34 @@ def detect_gpu_name() -> Optional[str]:
             break
         index += 1
         name = device.DeviceString.strip()
-        if not name:
+        if not name or name in seen:
             continue
-        # Prefer the adapter attached to the desktop (StateFlags bit 0).
-        if device.StateFlags & 0x1:
+        seen.add(name)
+        # StateFlags bit 0 = adapter attached to the desktop.
+        (attached if device.StateFlags & 0x1 else others).append(name)
+    return attached + others
+
+
+# Substrings that identify an adapter vendor in a Win32 device string.
+_VENDOR_HINTS = {
+    "nvidia": ("nvidia", "geforce", "quadro", "rtx ", "gtx ", "tesla"),
+    "amd": ("amd", "radeon", "firepro"),
+    "intel": ("intel", "arc ", "iris", "uhd graphics", "hd graphics"),
+}
+
+
+def detect_gpu_name(vendor: Optional[str] = None) -> Optional[str]:
+    """Adapter name, optionally restricted to a vendor.
+
+    With ``vendor`` set, returns None rather than a different vendor's card:
+    a CUDA backend must never label itself with a Radeon, and vice versa.
+    """
+    names = detect_gpu_names()
+    if vendor is None:
+        return names[0] if names else None
+    hints = _VENDOR_HINTS.get(vendor.lower(), (vendor.lower(),))
+    for name in names:
+        lowered = name.lower()
+        if any(hint in lowered for hint in hints):
             return name
-        best = best or name
-    return best
+    return None

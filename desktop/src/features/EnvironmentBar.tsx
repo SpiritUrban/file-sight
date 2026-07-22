@@ -1,4 +1,5 @@
 import { useAppStore } from "@/stores/appStore";
+import type { WorkerEnvironment } from "@/types";
 
 function Pill({ label, value, ok }: { label: string; value: string; ok: boolean }) {
   return (
@@ -57,15 +58,38 @@ export function EnvironmentBar() {
         value={environment.ffmpeg.available ? "Ready" : "Not found"}
         ok={environment.ffmpeg.available}
       />
-      <Pill
-        label="DirectML"
-        value={
-          environment.inference?.directml_available
-            ? (environment.inference.gpu_name ?? "Available")
-            : "Not available"
-        }
-        ok={Boolean(environment.inference?.directml_available)}
-      />
+      <GpuPill inference={environment.inference} />
     </div>
   );
+}
+
+/** Names the accelerator that is actually present, or says there is none.
+ *
+ * Deliberately reports GPU *availability*, not what captioning uses: the
+ * footer states the backend that really ran, and the two must never be
+ * conflated. */
+function GpuPill({
+  inference,
+}: {
+  inference: WorkerEnvironment["inference"];
+}) {
+  if (inference?.cuda_available) {
+    return (
+      <Pill
+        label="GPU"
+        value={`CUDA · ${inference.cuda_device_name ?? "NVIDIA"}`}
+        ok
+      />
+    );
+  }
+  if (inference?.directml_available) {
+    return (
+      <Pill
+        label="GPU"
+        value={`DirectML · ${inference.gpu_name ?? "Available"}`}
+        ok
+      />
+    );
+  }
+  return <Pill label="GPU" value="Not available" ok={false} />;
 }

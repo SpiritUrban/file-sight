@@ -34,10 +34,11 @@ const EMPTY: AppSettings = {
 };
 
 const BACKEND_LABELS: Array<{ value: string; label: string }> = [
-  { value: "auto", label: "Auto" },
-  { value: "onnx-directml", label: "ONNX Runtime DirectML" },
-  { value: "onnx-cpu", label: "ONNX Runtime CPU" },
-  { value: "pytorch-cpu", label: "PyTorch CPU" },
+  { value: "auto", label: "Auto (best available)" },
+  { value: "onnx-cuda", label: "NVIDIA GPU (CUDA)" },
+  { value: "onnx-directml", label: "AMD / Intel GPU (DirectML)" },
+  { value: "onnx-cpu", label: "CPU (ONNX Runtime)" },
+  { value: "pytorch-cpu", label: "CPU (PyTorch)" },
 ];
 
 function PathField({
@@ -154,8 +155,18 @@ export function SettingsDialog({
     setBackendBusy("bench");
     setBenchmark(null);
     try {
-      const backend =
-        settings.backend === "auto" ? "onnx-directml" : settings.backend;
+      // "auto" is a policy, not a benchmarkable backend: benchmark the
+      // best accelerator this machine actually has, else the CPU path.
+      const present = new Set(
+        (testResult?.inference?.backends ?? [])
+          .filter((b) => b.available)
+          .map((b) => b.backend_id),
+      );
+      const best =
+        ["onnx-cuda", "onnx-directml", "onnx-cpu", "pytorch-cpu"].find((id) =>
+          present.has(id),
+        ) ?? "onnx-cpu";
+      const backend = settings.backend === "auto" ? best : settings.backend;
       const result = (await client.request("benchmark_backend", {
         backend,
         runs: 5,

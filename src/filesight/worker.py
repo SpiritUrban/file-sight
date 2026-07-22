@@ -476,17 +476,27 @@ def cmd_get_environment(worker: Worker, request_id: str, payload: dict) -> None:
 
     # Inference backends (cheap availability, no model load, no self-test).
     try:
-        from filesight.inference.base import detect_gpu_name
-        from filesight.inference.registry import available_backends
+        from filesight.inference.base import detect_gpu_name, detect_gpu_names
+        from filesight.inference.registry import (
+            available_backends,
+            select_auto_backend,
+        )
 
         backends = available_backends()
-        dml = next(
-            (b for b in backends if b["backend_id"] == "onnx-directml"), None
-        )
+        flag = {b["backend_id"]: b["available"] for b in backends}
+        dml_ok = bool(flag.get("onnx-directml"))
+        cuda_ok = bool(flag.get("onnx-cuda"))
+        auto_choice, considered = select_auto_backend()
         data["inference"] = {
             "backends": backends,
-            "directml_available": bool(dml and dml["available"]),
-            "gpu_name": detect_gpu_name() if dml and dml["available"] else None,
+            "directml_available": dml_ok,
+            "cuda_available": cuda_ok,
+            "gpu_name": detect_gpu_name() if dml_ok else None,
+            "cuda_device_name": detect_gpu_name("nvidia") if cuda_ok else None,
+            "adapters": detect_gpu_names(),
+            # What "auto" would pick right now, and why.
+            "auto_backend": auto_choice,
+            "auto_considered": considered,
         }
     except Exception as exc:  # pragma: no cover - defensive
         data["inference"] = {"error": str(exc)}
@@ -671,6 +681,7 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
         fallback_occurred=selection.fallback_occurred,
         fallback_reason=selection.fallback_reason,
         directml_available=selection.directml_available,
+        cuda_available=selection.cuda_available,
     )
     report = build_report(
         source_directory=directory, recursive=recursive,
@@ -931,11 +942,15 @@ def cmd_test_backend(worker: Worker, request_id: str, payload: dict) -> None:
 
     backend_id = str(payload.get("backend") or "auto")
     if backend_id == "auto":
-        # "auto" is a selection policy, not a testable backend; pick the
-        # best concrete one to test.
-        from filesight.inference.registry import _directml_available
+        # "auto" is a selection policy, not a testable backend; test the
+        # best accelerator that is actually present, else the CPU path.
+        from filesight.inference.base import BACKEND_PRIORITY
+        from filesight.inference.registry import _provider_available
 
-        backend_id = "onnx-directml" if _directml_available() else "onnx-cpu"
+        backend_id = next(
+            (b for b in BACKEND_PRIORITY if _provider_available(b)),
+            "onnx-cpu",
+        )
     diag = test_backend(backend_id)
     worker.emitter.emit(request_id, "completed", diag.to_dict())
 

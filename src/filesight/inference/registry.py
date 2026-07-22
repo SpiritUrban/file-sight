@@ -8,7 +8,9 @@ from typing import Optional
 from filesight.inference.base import (
     BACKEND_AUTO,
     BACKEND_ONNX_CPU,
+    BACKEND_ONNX_CUDA,
     BACKEND_ONNX_DIRECTML,
+    BACKEND_PRIORITY,
     BACKEND_PYTORCH_CPU,
     KNOWN_BACKENDS,
     BackendDiagnostics,
@@ -31,6 +33,10 @@ def make_backend(backend_id: str) -> InferenceBackend:
         from filesight.inference.onnx_backends import OnnxDirectMlBackend
 
         return OnnxDirectMlBackend()
+    if backend_id == BACKEND_ONNX_CUDA:
+        from filesight.inference.onnx_backends import OnnxCudaBackend
+
+        return OnnxCudaBackend()
     raise BackendError("UNKNOWN_BACKEND", f"Unknown backend: {backend_id!r}")
 
 
@@ -67,6 +73,8 @@ class BackendSelection:
     fallback_occurred: bool = False
     fallback_reason: Optional[str] = None
     directml_available: bool = False
+    cuda_available: bool = False
+    considered: list[dict] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
     def report_dict(self) -> dict:
@@ -81,24 +89,109 @@ class BackendSelection:
             "fallback_occurred": self.fallback_occurred,
             "fallback_reason": self.fallback_reason,
             "directml_available": self.directml_available,
+            "cuda_available": self.cuda_available,
+            # Why auto landed where it did — every candidate, in order,
+            # with the honest reason it was or was not chosen.
+            "considered": self.considered,
         }
 
 
-# Reason recorded when a real scan cannot use an ONNX backend yet.
-_CAPTION_NEEDS_PYTORCH = (
-    "The caption model is not exported to ONNX yet, so captioning runs on "
-    "PyTorch CPU. DirectML is verified separately via backend test and "
-    "benchmark. See docs/iteration-06.md."
+# Reason recorded when a runtime is present but has no caption model.
+_NO_CAPTION_MODEL = (
+    "no caption model for this runtime yet (the model is not exported to "
+    "ONNX), so it cannot run a scan"
 )
+_RUNTIME_MISSING = "runtime/provider not available on this machine"
+_CHOSEN = "selected"
+
+
+def _probe(backend_id: str) -> tuple[bool, bool, Optional[str]]:
+    """(available, can_caption, error) for one backend. Never raises."""
+    try:
+        backend = make_backend(backend_id)
+        available = backend.is_available()
+        captions = bool(available and backend.can_caption())
+        return available, captions, None
+    except Exception as exc:
+        return False, False, f"{type(exc).__name__}: {exc}"
+
+
+def _provider_available(backend_id: str) -> bool:
+    available, _, _ = _probe(backend_id)
+    return available
 
 
 def _directml_available() -> bool:
-    from filesight.inference.onnx_backends import OnnxDirectMlBackend
+    return _provider_available(BACKEND_ONNX_DIRECTML)
 
-    try:
-        return OnnxDirectMlBackend().is_available()
-    except Exception:
-        return False
+
+def _cuda_available() -> bool:
+    return _provider_available(BACKEND_ONNX_CUDA)
+
+
+def _build_selection(
+    backend_id: str,
+    requested: str,
+    *,
+    fallback: bool,
+    reason: Optional[str],
+    considered: list[dict],
+    dml_available: bool,
+    cuda_available: bool,
+) -> BackendSelection:
+    backend = make_backend(backend_id)
+    diag = backend.get_diagnostics()
+    return BackendSelection(
+        backend=backend,
+        requested_backend=requested,
+        actual_backend=backend_id,
+        runtime=diag.runtime,
+        runtime_version=diag.runtime_version,
+        execution_provider=diag.execution_provider,
+        device_name=diag.device_name,
+        model_id=diag.model_id,
+        fallback_occurred=fallback,
+        fallback_reason=reason,
+        directml_available=dml_available,
+        cuda_available=cuda_available,
+        considered=considered,
+        notes=[reason] if reason else [],
+    )
+
+
+def select_auto_backend() -> tuple[Optional[str], list[dict]]:
+    """Best backend that can genuinely caption, plus why each was ranked so.
+
+    Walks ``BACKEND_PRIORITY`` (CUDA, DirectML, ONNX CPU, PyTorch CPU) and
+    takes the first candidate that is both available and caption-capable. A
+    backend whose runtime works but has no caption model is passed over and
+    recorded as such — auto never picks something that would then hand the
+    work to a different device than the one it names.
+    """
+    considered: list[dict] = []
+    chosen: Optional[str] = None
+    for backend_id in BACKEND_PRIORITY:
+        available, captions, error = _probe(backend_id)
+        if chosen is None and available and captions:
+            chosen = backend_id
+            why = _CHOSEN
+        elif error:
+            why = error
+        elif not available:
+            why = _RUNTIME_MISSING
+        elif not captions:
+            why = _NO_CAPTION_MODEL
+        else:
+            why = "lower priority than the selected backend"
+        considered.append(
+            {
+                "backend_id": backend_id,
+                "available": available,
+                "can_caption": captions,
+                "reason": why,
+            }
+        )
+    return chosen, considered
 
 
 def resolve_backend(
@@ -107,49 +200,69 @@ def resolve_backend(
 ) -> BackendSelection:
     """Pick the backend that will caption this scan, honestly.
 
-    Captioning currently runs only on PyTorch CPU (the ONNX caption model is
-    not exported yet). ``auto`` therefore resolves to ``pytorch-cpu`` for
-    captioning, while still recording whether DirectML is available so the
-    report and UI can be truthful. Requesting an ONNX backend with fallback
-    disabled surfaces a clear error rather than silently using the CPU.
+    ``auto`` walks the priority order and takes the best backend that can
+    actually caption. Today only PyTorch CPU has a caption model, so auto
+    still lands on the CPU even where DirectML or CUDA is present — and it
+    records exactly why in ``considered``, so the UI never has to guess and
+    can never overstate the device. Requesting a GPU backend explicitly
+    falls back with a stated reason, or errors when fallback is disabled.
     """
     if requested not in (BACKEND_AUTO, *KNOWN_BACKENDS):
         raise BackendError("UNKNOWN_BACKEND", f"Unknown backend: {requested!r}")
 
     dml_available = _directml_available()
+    cuda_available = _cuda_available()
+    auto_choice, considered = select_auto_backend()
 
-    def pytorch_selection(fallback: bool, reason: Optional[str]) -> BackendSelection:
-        backend = make_backend(BACKEND_PYTORCH_CPU)
-        diag = backend.get_diagnostics()
-        return BackendSelection(
-            backend=backend,
-            requested_backend=requested,
-            actual_backend=BACKEND_PYTORCH_CPU,
-            runtime=diag.runtime,
-            runtime_version=diag.runtime_version,
-            execution_provider=diag.execution_provider,
-            device_name=diag.device_name,
-            model_id=diag.model_id,
-            fallback_occurred=fallback,
-            fallback_reason=reason,
-            directml_available=dml_available,
-            notes=[reason] if reason else [],
+    if auto_choice is None:
+        raise BackendError(
+            "NO_USABLE_BACKEND",
+            "No inference backend on this machine can generate captions. "
+            "PyTorch CPU is the baseline and appears to be missing or "
+            "broken; reinstall the Python dependencies.",
         )
 
-    if requested in (BACKEND_AUTO, BACKEND_PYTORCH_CPU):
-        # auto notes that DirectML exists but captioning still needs PyTorch
-        reason = _CAPTION_NEEDS_PYTORCH if requested == BACKEND_AUTO and dml_available else None
-        return pytorch_selection(fallback=False, reason=reason)
+    def picked(backend_id: str, fallback: bool, reason: Optional[str]):
+        return _build_selection(
+            backend_id, requested,
+            fallback=fallback, reason=reason, considered=considered,
+            dml_available=dml_available, cuda_available=cuda_available,
+        )
 
-    # An ONNX backend was explicitly requested but cannot caption yet.
+    if requested == BACKEND_AUTO:
+        skipped = [
+            c["backend_id"] for c in considered
+            if c["available"] and not c["can_caption"]
+        ]
+        reason = None
+        if skipped:
+            reason = (
+                f"{', '.join(skipped)} available but skipped: "
+                f"{_NO_CAPTION_MODEL}. See docs/iteration-06.md."
+            )
+        return picked(auto_choice, fallback=False, reason=reason)
+
+    # An explicit request.
+    available, captions, error = _probe(requested)
+    if available and captions:
+        return picked(requested, fallback=False, reason=None)
+
+    why = error or (_RUNTIME_MISSING if not available else _NO_CAPTION_MODEL)
     if not allow_fallback:
         raise BackendError(
             "BACKEND_CANNOT_CAPTION",
-            f"Backend {requested!r} cannot generate captions yet and "
-            "automatic fallback is disabled. Enable fallback or choose "
-            "PyTorch CPU. See docs/iteration-06.md.",
+            f"Backend {requested!r} cannot generate captions: {why}. "
+            "Automatic fallback is disabled, so nothing was run. Enable "
+            "fallback or choose a different backend. See docs/iteration-06.md.",
         )
-    return pytorch_selection(fallback=True, reason=_CAPTION_NEEDS_PYTORCH)
+    return picked(
+        auto_choice,
+        fallback=True,
+        reason=(
+            f"requested {requested!r} but {why}; fell back to "
+            f"{auto_choice!r}."
+        ),
+    )
 
 
 def benchmark_backend(
@@ -276,13 +389,24 @@ def _peak_ram_mb() -> Optional[int]:
 
 
 def available_backends() -> list[dict]:
-    """List concrete backends with a cheap availability flag (no self-test)."""
+    """List concrete backends with cheap flags (no self-test, no model load).
+
+    ``available`` means the runtime is present; ``can_caption`` means it can
+    actually run a scan. The UI needs both so it can offer a backend while
+    telling the truth about what it will do.
+    """
+    from filesight.inference.base import BACKEND_LABELS
+
     out: list[dict] = []
     for backend_id in KNOWN_BACKENDS:
-        try:
-            backend = make_backend(backend_id)
-            available = backend.is_available()
-        except Exception:
-            available = False
-        out.append({"backend_id": backend_id, "available": available})
+        available, captions, error = _probe(backend_id)
+        out.append(
+            {
+                "backend_id": backend_id,
+                "label": BACKEND_LABELS.get(backend_id, backend_id),
+                "available": available,
+                "can_caption": captions,
+                "error": error,
+            }
+        )
     return out

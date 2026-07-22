@@ -140,6 +140,7 @@ class InferenceInfo:
     fallback_occurred: bool = False
     fallback_reason: Optional[str] = None
     directml_available: bool = False
+    cuda_available: bool = False
 
 
 @dataclass
