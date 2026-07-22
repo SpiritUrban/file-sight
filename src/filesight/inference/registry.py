@@ -98,8 +98,9 @@ class BackendSelection:
 
 # Reason recorded when a runtime is present but has no caption model.
 _NO_CAPTION_MODEL = (
-    "no caption model for this runtime yet (the model is not exported to "
-    "ONNX), so it cannot run a scan"
+    "the ONNX caption model pack is not installed for this runtime, so it "
+    "cannot run a scan (install the model pack or set "
+    "FILESIGHT_ONNX_MODEL_DIR; see docs/onnx-export.md)"
 )
 _RUNTIME_MISSING = "runtime/provider not available on this machine"
 _CHOSEN = "selected"

@@ -326,8 +326,10 @@ export function SettingsDialog({
             Allow automatic fallback
           </label>
           <p className="mt-1 text-xs text-slate-500">
-            Captioning currently runs on PyTorch CPU. DirectML is verified via
-            the buttons below and shown in each report.
+            GPU backends need the ONNX model pack installed; without it they
+            cannot caption and this falls back to CPU. Captions are identical
+            on every backend, and a GPU is not currently faster for a whole
+            scan. Each report names the backend that actually ran.
           </p>
 
           <div className="mt-2 flex flex-wrap gap-2">

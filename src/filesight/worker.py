@@ -139,13 +139,40 @@ class Worker:
             return
         self._onnx_warmed = True
         try:
+            from filesight.inference.onnx_caption import find_model_dir
             from filesight.inference.registry import _directml_available, make_backend
 
+            # Say plainly what was found. When a scan unexpectedly runs on
+            # the CPU, this line is the difference between diagnosing it and
+            # guessing at it.
+            log(
+                f"onnx warm-up: directml={_directml_available()} "
+                f"model_pack={find_model_dir()}"
+            )
             if _directml_available():
                 backend = make_backend("onnx-directml")
             else:
                 backend = make_backend("onnx-cpu")
             backend.self_test()  # creates + runs a real session, then...
+
+            # If a caption model pack is installed, build its sessions now
+            # too: they are the ones a scan will use, and creating them
+            # after the reader thread starts hits the same loader-lock
+            # deadlock the self-test session was warmed for.
+            if backend.can_caption():
+                from PIL import Image
+
+                log(f"warming the ONNX caption model ({backend.backend_id})")
+                backend.caption_image(Image.new("RGB", (64, 64)))
+                log("ONNX caption model ready")
+            else:
+                from filesight.inference.onnx_caption import describe_model_search
+
+                log(
+                    f"{backend.backend_id} will not caption "
+                    f"(available={backend.is_available()}); scans use the CPU"
+                )
+                log(f"model pack search: {describe_model_search()}")
             backend.close()
         except Exception as exc:  # pragma: no cover - defensive
             log(f"onnx warm-up skipped: {exc}")

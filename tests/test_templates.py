@@ -271,3 +271,21 @@ def test_all_supported_variables_render() -> None:
     assert unknown_variables(template) == []
     result = build(p, template, index=1)
     assert result.base_name  # renders without raising and is non-empty
+
+
+def test_profile_naming_does_not_rotate_names_between_lookalikes() -> None:
+    """Regression: a folder of look-alike images used to have its names
+    rotated between files, renaming every one of them for no gain."""
+    from filesight.naming_preview import NamingSession
+
+    session = NamingSession(built_in_profile("default"))
+    names = ["man-standing-002.webp", "man-standing-003.webp", "man-standing.webp"]
+    suggested = [
+        session.name_for(
+            original_path=f"F:\\pics\\{name}",
+            original_name=name,
+            caption="a man standing",
+        ).naming.suggested_name
+        for name in names
+    ]
+    assert suggested == names

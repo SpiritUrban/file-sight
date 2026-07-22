@@ -51,10 +51,35 @@ def _directml_available() -> bool:
     return OnnxDirectMlBackend().is_available()
 
 
+def _model_pack() -> bool:
+    """Is an exported ONNX caption model installed on this machine?"""
+    from filesight.inference.onnx_caption import model_is_available
+
+    return model_is_available()
+
+
 onnx = pytest.mark.skipif(not _onnx_installed(), reason="onnxruntime not installed")
 dml = pytest.mark.skipif(
     not _directml_available(), reason="DirectML provider not available"
 )
+needs_model = pytest.mark.skipif(
+    not _model_pack(), reason="ONNX caption model pack not installed"
+)
+no_model = pytest.mark.skipif(
+    _model_pack(), reason="ONNX caption model pack is installed here"
+)
+
+
+def _best_caption_backend() -> str:
+    """What auto should choose here, derived independently of the code
+    under test: the first priority entry that can really caption."""
+    from filesight.inference.registry import _probe
+
+    for backend_id in BACKEND_PRIORITY:
+        available, captions, _ = _probe(backend_id)
+        if available and captions:
+            return backend_id
+    raise AssertionError("no caption-capable backend on this machine")
 
 
 @pytest.fixture(autouse=True)
@@ -89,12 +114,20 @@ def test_available_backends_lists_all_four() -> None:
 
 def test_available_backends_separate_runtime_from_captioning() -> None:
     rows = {b["backend_id"]: b for b in available_backends()}
-    # A present runtime must never be reported as caption-capable while no
-    # ONNX caption model exists.
+    # An ONNX backend may only claim captioning when BOTH its runtime and
+    # the exported model pack are present — never on the runtime alone.
     for backend_id in (BACKEND_ONNX_CUDA, BACKEND_ONNX_DIRECTML, BACKEND_ONNX_CPU):
-        assert rows[backend_id]["can_caption"] is False
+        row = rows[backend_id]
+        assert row["can_caption"] == (row["available"] and _model_pack())
     assert rows[BACKEND_PYTORCH_CPU]["can_caption"] is True
     assert all(b["label"] for b in rows.values())
+
+
+@no_model
+def test_onnx_cannot_caption_without_the_model_pack() -> None:
+    rows = {b["backend_id"]: b for b in available_backends()}
+    for backend_id in (BACKEND_ONNX_DIRECTML, BACKEND_ONNX_CPU):
+        assert rows[backend_id]["can_caption"] is False
 
 
 # --- priority order --------------------------------------------------------
@@ -109,7 +142,7 @@ def test_priority_prefers_gpu_then_cpu() -> None:
 
 def test_auto_picks_only_caption_capable_backend() -> None:
     choice, considered = select_auto_backend()
-    assert choice == BACKEND_PYTORCH_CPU
+    assert choice == _best_caption_backend()
     ordered = [c["backend_id"] for c in considered]
     assert ordered == list(BACKEND_PRIORITY)
     chosen = [c for c in considered if c["reason"] == "selected"]
@@ -154,8 +187,25 @@ def test_cuda_wins_over_directml_when_both_caption(monkeypatch) -> None:
 # --- auto selection & fallback policy -------------------------------------
 
 
-def test_auto_selects_pytorch_for_captioning() -> None:
-    # Captioning is PyTorch CPU until the ONNX caption model exists.
+def test_auto_selects_the_best_caption_capable_backend() -> None:
+    selection = resolve_backend(BACKEND_AUTO)
+    assert selection.actual_backend == _best_caption_backend()
+
+
+@needs_model
+def test_auto_prefers_the_gpu_when_it_can_really_caption() -> None:
+    """With the model pack installed, auto must stop settling for the CPU."""
+    if not _directml_available():
+        pytest.skip("no DirectML on this machine")
+    selection = resolve_backend(BACKEND_AUTO)
+    assert selection.actual_backend == BACKEND_ONNX_DIRECTML
+    assert selection.runtime == "onnxruntime"
+    assert selection.device_name == detect_gpu_name()
+    assert selection.fallback_occurred is False
+
+
+@no_model
+def test_auto_falls_back_to_pytorch_without_a_model_pack() -> None:
     selection = resolve_backend(BACKEND_AUTO)
     assert selection.actual_backend == BACKEND_PYTORCH_CPU
     assert selection.runtime == "pytorch"
@@ -166,6 +216,7 @@ def test_auto_records_directml_availability() -> None:
     assert selection.directml_available == _directml_available()
 
 
+@no_model
 def test_requesting_onnx_falls_back_when_allowed() -> None:
     selection = resolve_backend(BACKEND_ONNX_DIRECTML, allow_fallback=True)
     assert selection.actual_backend == BACKEND_PYTORCH_CPU
@@ -173,10 +224,22 @@ def test_requesting_onnx_falls_back_when_allowed() -> None:
     assert selection.fallback_reason
 
 
+@no_model
 def test_requesting_onnx_without_fallback_raises() -> None:
     with pytest.raises(BackendError) as exc:
         resolve_backend(BACKEND_ONNX_CPU, allow_fallback=False)
     assert exc.value.code == "BACKEND_CANNOT_CAPTION"
+
+
+@needs_model
+def test_requesting_onnx_is_honoured_when_it_can_caption() -> None:
+    """The user's explicit GPU choice must actually be used, not silently
+    downgraded, once the model pack makes it possible."""
+    if not _directml_available():
+        pytest.skip("no DirectML on this machine")
+    selection = resolve_backend(BACKEND_ONNX_DIRECTML, allow_fallback=False)
+    assert selection.actual_backend == BACKEND_ONNX_DIRECTML
+    assert selection.fallback_occurred is False
 
 
 def test_pytorch_request_has_no_spurious_fallback() -> None:
@@ -192,7 +255,7 @@ def test_unknown_requested_backend_raises() -> None:
 
 def test_selection_report_dict_is_honest() -> None:
     data = resolve_backend(BACKEND_AUTO).report_dict()
-    assert data["actual_backend"] == BACKEND_PYTORCH_CPU
+    assert data["actual_backend"] == _best_caption_backend()
     assert data["requested_backend"] == BACKEND_AUTO
     assert set(data) >= {
         "requested_backend", "actual_backend", "runtime",
@@ -205,13 +268,53 @@ def test_selection_report_dict_is_honest() -> None:
 
 
 @onnx
-def test_onnx_backend_refuses_to_caption() -> None:
+def test_onnx_backend_refuses_to_caption_without_a_model(monkeypatch) -> None:
+    """Missing model must be a clear error, never a silent hand-off to
+    PyTorch dressed up as an ONNX result."""
     from PIL import Image
 
+    import filesight.inference.onnx_caption as oc
+
+    monkeypatch.setattr(oc, "find_model_dir", lambda: None)
     backend = OnnxCpuBackend()
     with pytest.raises(BackendError) as exc:
         backend.caption_image(Image.new("RGB", (8, 8)))
-    assert exc.value.code == "ONNX_CAPTION_UNAVAILABLE"
+    assert exc.value.code == "ONNX_MODEL_MISSING"
+
+
+@onnx
+@needs_model
+def test_onnx_cpu_really_captions() -> None:
+    from PIL import Image
+
+    result = OnnxCpuBackend().caption_image(Image.new("RGB", (64, 64), (30, 90, 160)))
+    assert result.caption
+    assert result.backend_id == BACKEND_ONNX_CPU
+
+
+@dml
+@needs_model
+def test_directml_really_captions_on_this_gpu() -> None:
+    from PIL import Image
+
+    result = OnnxDirectMlBackend().caption_image(
+        Image.new("RGB", (64, 64), (200, 120, 40))
+    )
+    assert result.caption
+    assert result.backend_id == BACKEND_ONNX_DIRECTML
+
+
+@dml
+@needs_model
+def test_directml_diagnostics_name_both_placements() -> None:
+    """The decoder runs on CPU, so the report must not read as though the
+    whole model ran on the GPU."""
+    diag = OnnxDirectMlBackend().get_diagnostics()
+    assert "DmlExecutionProvider" in diag.execution_provider
+    assert "CPUExecutionProvider" in diag.execution_provider
+    assert "vision" in diag.execution_provider
+    assert "decoder" in diag.execution_provider
+    assert any("decoder runs on CPU" in note for note in diag.notes)
 
 
 # --- self-test ------------------------------------------------------------
@@ -231,7 +334,7 @@ def test_directml_self_test_passes_on_this_gpu() -> None:
     diag = run_backend_test(BACKEND_ONNX_DIRECTML)
     assert diag.available is True
     assert diag.self_test_passed is True, diag.error
-    assert diag.execution_provider == "DmlExecutionProvider"
+    assert "DmlExecutionProvider" in diag.execution_provider
     # honest device name, never invented
     assert diag.device_name
     assert diag.device_name == detect_gpu_name()
@@ -273,7 +376,7 @@ def test_benchmark_clamps_runs() -> None:
 @dml
 def test_directml_benchmark_reports_the_provider() -> None:
     result = benchmark_backend(BACKEND_ONNX_DIRECTML, runs=3)
-    assert result["execution_provider"] == "DmlExecutionProvider"
+    assert "DmlExecutionProvider" in result["execution_provider"]
     assert result["device_name"] == detect_gpu_name()
 
 
@@ -336,7 +439,8 @@ def test_requesting_cuda_without_nvidia_falls_back_honestly() -> None:
     if _cuda_available():
         pytest.skip("CUDA is available here")
     selection = resolve_backend(BACKEND_ONNX_CUDA, allow_fallback=True)
-    assert selection.actual_backend == BACKEND_PYTORCH_CPU
+    assert selection.actual_backend == _best_caption_backend()
+    assert selection.actual_backend != BACKEND_ONNX_CUDA
     assert selection.fallback_occurred is True
     assert "onnx-cuda" in selection.fallback_reason
     assert selection.cuda_available is False
@@ -348,6 +452,41 @@ def test_cuda_self_test_passes_on_this_gpu() -> None:
     assert diag.self_test_passed is True, diag.error
     assert diag.execution_provider == "CUDAExecutionProvider"
     assert diag.device_name == detect_gpu_name("nvidia")
+
+
+# --- model pack discovery -------------------------------------------------
+
+
+def test_model_search_survives_a_missing_localappdata(monkeypatch) -> None:
+    """Regression: the desktop app's worker did not inherit %LOCALAPPDATA%,
+    so the model became invisible and scans silently ran on the CPU while
+    the user had explicitly chosen the GPU."""
+    from filesight.inference.onnx_caption import model_dir_candidates
+
+    monkeypatch.delenv("LOCALAPPDATA", raising=False)
+    candidates = model_dir_candidates()
+    assert candidates, "no candidate paths without LOCALAPPDATA"
+    # The standard per-user location must still be reachable via the home
+    # directory rather than the environment alone.
+    assert any(
+        "appdata" in str(c).lower() and "local" in str(c).lower()
+        for c in candidates
+    )
+
+
+def test_model_search_prefers_the_explicit_override(monkeypatch, tmp_path) -> None:
+    from filesight.inference.onnx_caption import model_dir_candidates
+
+    monkeypatch.setenv("FILESIGHT_ONNX_MODEL_DIR", str(tmp_path))
+    assert model_dir_candidates()[0] == tmp_path
+
+
+def test_model_search_is_reported_for_diagnosis() -> None:
+    from filesight.inference.onnx_caption import describe_model_search
+
+    text = describe_model_search()
+    assert text
+    assert "HIT" in text or "miss" in text
 
 
 # --- device name ----------------------------------------------------------

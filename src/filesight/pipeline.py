@@ -78,7 +78,9 @@ def process_image(
             naming = outcome.naming
             suggested = naming.suggested_name
         else:
-            suggested = allocator.allocate(caption, path.suffix)
+            # Pass the current name so a file already named what we would
+            # suggest keeps it instead of being shuffled aside.
+            suggested = allocator.allocate(caption, path.suffix, path.name)
     except KeyboardInterrupt:
         raise
     except Exception as exc:  # one broken file must not stop the scan

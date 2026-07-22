@@ -490,10 +490,16 @@ def test_scan_records_inference_metadata(worker, tmp_path: Path) -> None:
     run(instance, "scan", {"directory": str(tmp_path), "include_images": True})
     data = events.last()["data"]
     inference = data["report"]["inference"]
-    # captioning is honestly PyTorch CPU, never falsely "directml"
-    assert inference["actual_backend"] == "pytorch-cpu"
+    # Whatever ran, the report must name it and never claim a device that
+    # was only *available* rather than actually used.
+    from filesight.inference.registry import _probe
+
+    actual = inference["actual_backend"]
+    available, captions, _ = _probe(actual)
+    assert available and captions, f"{actual} was reported but cannot caption"
     assert inference["requested_backend"] == "auto"
     assert "directml_available" in inference
+    assert "cuda_available" in inference
 
 
 def test_make_thumbnail_for_an_image(worker, tmp_path: Path) -> None:

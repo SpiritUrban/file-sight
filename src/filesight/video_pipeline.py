@@ -182,7 +182,7 @@ def process_video(
             date_source=date_result.date_source,
         )
 
-    suggested = allocator.allocate(caption, path.suffix)
+    suggested = allocator.allocate(caption, path.suffix, path.name)
     return base_entry(
         "success",
         caption=caption,

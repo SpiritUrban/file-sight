@@ -74,6 +74,59 @@ def test_duplicate_names_get_stable_numbering() -> None:
     assert third == "black-dog-in-snow-003.jpg"
 
 
+def test_files_already_named_correctly_are_left_alone() -> None:
+    """The reported bug: three look-alike images rotated names between
+    themselves, so every file changed and nothing improved."""
+    allocator = NameAllocator()
+    caption = "a man standing"
+    # Scan order deliberately puts the suffixed files first — that order is
+    # exactly what produced the rotation.
+    got = [
+        allocator.allocate(caption, ".webp", "man-standing-002.webp"),
+        allocator.allocate(caption, ".webp", "man-standing-003.webp"),
+        allocator.allocate(caption, ".webp", "man-standing.webp"),
+    ]
+    assert got == [
+        "man-standing-002.webp",
+        "man-standing-003.webp",
+        "man-standing.webp",
+    ]
+
+
+def test_new_files_fill_the_gaps_around_existing_names() -> None:
+    allocator = NameAllocator()
+    caption = "a man standing"
+    assert allocator.allocate(caption, ".webp", "man-standing-002.webp") == (
+        "man-standing-002.webp"
+    )
+    # Unrelated current names take the lowest free slot, skipping the taken one.
+    assert allocator.allocate(caption, ".webp", "IMG_4021.webp") == "man-standing.webp"
+    assert allocator.allocate(caption, ".webp", "IMG_4022.webp") == (
+        "man-standing-003.webp"
+    )
+
+
+def test_a_name_is_only_claimed_once() -> None:
+    """Two files cannot both keep the same current name (duplicates across
+    subfolders), and the second must still get a unique one."""
+    allocator = NameAllocator()
+    caption = "a man standing"
+    assert allocator.allocate(caption, ".webp", "man-standing.webp") == (
+        "man-standing.webp"
+    )
+    assert allocator.allocate(caption, ".webp", "man-standing.webp") == (
+        "man-standing-002.webp"
+    )
+
+
+def test_lookalike_names_are_not_mistaken_for_slots() -> None:
+    allocator = NameAllocator()
+    # "-12" is not our zero-padded 3-digit form, so it is not a slot claim.
+    assert allocator.allocate("a man standing", ".webp", "man-standing-12.webp") == (
+        "man-standing.webp"
+    )
+
+
 def test_duplicates_are_case_insensitive_but_extensions_differ() -> None:
     allocator = NameAllocator()
     first = allocator.allocate("a cat", ".JPG")

@@ -113,11 +113,19 @@ _SELFTEST_N = 32
 _SELFTEST_EXPECTED_SUM = -30.888267517089844
 _SELFTEST_TOLERANCE = 0.05
 
-_NO_CAPTION_MESSAGE = (
-    "The caption model has not been exported to ONNX yet, so this backend "
-    "cannot generate captions. Captioning falls back to PyTorch CPU. This "
-    "backend's DirectML/ONNX path is verified via 'Test backend' and "
-    "'Benchmark'. See docs/iteration-06.md."
+_NO_MODEL_MESSAGE = (
+    "The ONNX caption model pack is not installed, so this backend cannot "
+    "generate captions. Install the model pack, or set "
+    "FILESIGHT_ONNX_MODEL_DIR to an exported model directory. See "
+    "docs/onnx-export.md."
+)
+
+# Reported when the model pack is present: the decoder cannot run on
+# DirectML, so the two halves sit on different devices, and the report
+# says so rather than claiming the whole model runs on the GPU.
+_HYBRID_NOTE = (
+    "Vision encoder runs on the GPU; the text decoder runs on CPU because "
+    "DirectML rejects a Reshape in the decoder graph. See docs/onnx-export.md."
 )
 
 
@@ -129,6 +137,9 @@ _NO_CAPTION_MESSAGE = (
 # session, so it is created once (at preload) and reused by scan, backend
 # test and benchmark alike.
 _SESSION_CACHE: dict[str, object] = {}
+# Caption sessions are far more expensive (~900 MB of weights) and are
+# subject to the same one-DirectML-session rule, so they are cached too.
+_CAPTIONER_CACHE: dict[str, object] = {}
 _SESSION_LOCK = None  # set lazily to a threading.Lock
 
 
@@ -144,6 +155,7 @@ def _session_lock():
 def reset_session_cache() -> None:
     """Drop cached sessions (tests only; not used in normal operation)."""
     _SESSION_CACHE.clear()
+    _CAPTIONER_CACHE.clear()
 
 
 class OnnxBackend:
@@ -172,10 +184,14 @@ class OnnxBackend:
         return self.provider in ort.get_available_providers()
 
     def can_caption(self) -> bool:
-        # No ONNX caption model exists yet, so no ONNX backend may be picked
-        # for a real scan. Flipping this to True is the single switch that
-        # lets auto-selection choose a GPU once the export lands.
-        return False
+        """True only when the runtime *and* an exported model pack exist.
+
+        Both halves are required: onnxruntime alone cannot caption without
+        the exported graphs, and the graphs are useless without a provider.
+        """
+        from filesight.inference.onnx_caption import model_is_available
+
+        return self.is_available() and model_is_available()
 
     # -- session -----------------------------------------------------------
 
@@ -207,11 +223,35 @@ class OnnxBackend:
 
     # -- captioning (not yet on ONNX) -------------------------------------
 
+    def _captioner(self):
+        """The shared captioner for this provider, created once."""
+        from filesight.inference.onnx_caption import (
+            OnnxBlipCaptioner,
+            find_model_dir,
+        )
+
+        model_dir = find_model_dir()
+        if model_dir is None:
+            raise BackendError("ONNX_MODEL_MISSING", _NO_MODEL_MESSAGE)
+
+        with _session_lock():
+            captioner = _CAPTIONER_CACHE.get(self.provider)
+            if captioner is None:
+                captioner = OnnxBlipCaptioner(model_dir, self.provider)
+                captioner.initialize()
+                _CAPTIONER_CACHE[self.provider] = captioner
+        return captioner
+
     def caption_image(self, image: Image.Image) -> CaptionResult:
-        raise BackendError("ONNX_CAPTION_UNAVAILABLE", _NO_CAPTION_MESSAGE)
+        text = self._captioner().caption(image)
+        return CaptionResult(caption=text, backend_id=self.backend_id)
 
     def caption_images(self, images: list[Image.Image]) -> list[CaptionResult]:
-        raise BackendError("ONNX_CAPTION_UNAVAILABLE", _NO_CAPTION_MESSAGE)
+        captioner = self._captioner()
+        return [
+            CaptionResult(caption=captioner.caption(image), backend_id=self.backend_id)
+            for image in images
+        ]
 
     # -- self-test / diagnostics ------------------------------------------
 
@@ -254,22 +294,44 @@ class OnnxBackend:
         return diag
 
     def get_diagnostics(self) -> BackendDiagnostics:
+        from filesight.inference import onnx_caption
+        from filesight.inference.onnx_caption import find_model_dir
+
         available = self.is_available()
         actual_provider = None
         if self._session is not None:
             providers = self._session.get_providers()
             actual_provider = providers[0] if providers else None
+
+        model_dir = find_model_dir()
+        notes: list[str] = []
+        if model_dir is None:
+            notes.append(_NO_MODEL_MESSAGE)
+            model_id = "filesight-selftest"
+        else:
+            model_id = onnx_caption.model_id(model_dir) or str(model_dir)
+            if self.provider != CPU_PROVIDER:
+                notes.append(_HYBRID_NOTE)
+
+        provider = actual_provider or self.provider
+        # Name both placements when they differ, so "DirectML" is never
+        # read as "the whole model ran on the GPU".
+        if model_dir is not None and self.provider != CPU_PROVIDER:
+            from filesight.inference.onnx_caption import DECODER_PROVIDER
+
+            provider = f"{self.provider} (vision) + {DECODER_PROVIDER} (decoder)"
+
         return BackendDiagnostics(
             backend_id=self.backend_id,
             available=available,
             runtime=RUNTIME_ONNX,
             initialized=self._session is not None,
             model_loaded=self._session is not None,
-            execution_provider=actual_provider or self.provider,
+            execution_provider=provider,
             device_name=self._device_name(),
             runtime_version=self._ort_version or _ort_version_safe(),
-            model_id="filesight-selftest",
-            notes=[_NO_CAPTION_MESSAGE],
+            model_id=model_id,
+            notes=notes,
         )
 
     def _device_name(self) -> Optional[str]:

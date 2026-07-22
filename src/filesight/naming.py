@@ -7,6 +7,7 @@ neural network, so it is fully unit-testable.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 MAX_NAME_LENGTH = 80  # characters, excluding the extension
 MAX_WORDS = 8
@@ -87,42 +88,85 @@ def build_suggested_name(caption: str, extension: str) -> str:
     return f"{build_stem(caption)}{extension}"
 
 
-class FinalNameAllocator:
-    """Deduplicates already-built base names within one report.
+class _SlotAllocator:
+    """Hands out ``stem``, ``stem-002``, ``stem-003`` … within one report.
 
-    The first occurrence keeps its name; later duplicates get -002, -003.
-    Comparison is case-insensitive because Windows file names are.
+    Slots are numbered from 1, where slot 1 is the plain, unsuffixed name.
+
+    A file whose *current* name already occupies a free slot of its own
+    family keeps that exact name. Without this, names are handed out in
+    processing order and a folder of look-alike images shuffles: the first
+    file scanned takes the plain name that a later file already had, which
+    then has to move aside, and so on — a chain of renames that changes
+    every file and improves nothing. Stability wins over tidiness here: a
+    file already carrying a name we would have suggested is left alone.
     """
 
     def __init__(self, separator: str = "-") -> None:
-        self._counts: dict[str, int] = {}
+        self._used: dict[str, set[int]] = {}
         self._separator = separator
 
-    def allocate(self, base: str, extension: str) -> str:
-        key = f"{base}{extension}".lower()
-        count = self._counts.get(key, 0) + 1
-        self._counts[key] = count
-        if count == 1:
+    def _format(self, base: str, extension: str, slot: int) -> str:
+        if slot == 1:
             return f"{base}{extension}"
-        return f"{base}{self._separator}{count:03d}{extension}"
+        return f"{base}{self._separator}{slot:03d}{extension}"
+
+    def _current_slot(
+        self, base: str, extension: str, current_name: Optional[str]
+    ) -> Optional[int]:
+        """Which slot of this family the current name already occupies."""
+        if not current_name:
+            return None
+        current = current_name.lower()
+        if current == f"{base}{extension}".lower():
+            return 1
+        prefix = f"{base}{self._separator}".lower()
+        suffix = extension.lower()
+        if not (current.startswith(prefix) and current.endswith(suffix)):
+            return None
+        middle = current[len(prefix): len(current) - len(suffix)] if suffix else current[len(prefix):]
+        # Only the exact zero-padded form we generate counts, so an
+        # unrelated name like "cat-dog.jpg" is never mistaken for a slot.
+        if len(middle) == 3 and middle.isdigit():
+            slot = int(middle)
+            if slot >= 2:
+                return slot
+        return None
+
+    def allocate_base(
+        self, base: str, extension: str, current_name: Optional[str] = None
+    ) -> str:
+        key = f"{base}{extension}".lower()
+        used = self._used.setdefault(key, set())
+
+        mine = self._current_slot(base, extension, current_name)
+        if mine is not None and mine not in used:
+            used.add(mine)
+            return self._format(base, extension, mine)
+
+        slot = 1
+        while slot in used:
+            slot += 1
+        used.add(slot)
+        return self._format(base, extension, slot)
 
 
-class NameAllocator:
+class FinalNameAllocator(_SlotAllocator):
+    """Deduplicates already-built base names within one report."""
+
+    def allocate(
+        self, base: str, extension: str, current_name: Optional[str] = None
+    ) -> str:
+        return self.allocate_base(base, extension, current_name)
+
+
+class NameAllocator(_SlotAllocator):
     """Assigns stable, unique suggested names within one report.
 
-    The first occurrence of a stem keeps its plain name; later duplicates
-    get ``-002``, ``-003`` and so on, in processing order. Comparison is
-    case-insensitive because Windows file names are.
+    Comparison is case-insensitive because Windows file names are.
     """
 
-    def __init__(self) -> None:
-        self._counts: dict[str, int] = {}
-
-    def allocate(self, caption: str, extension: str) -> str:
-        stem = build_stem(caption)
-        key = f"{stem}{extension}".lower()
-        count = self._counts.get(key, 0) + 1
-        self._counts[key] = count
-        if count == 1:
-            return f"{stem}{extension}"
-        return f"{stem}-{count:03d}{extension}"
+    def allocate(
+        self, caption: str, extension: str, current_name: Optional[str] = None
+    ) -> str:
+        return self.allocate_base(build_stem(caption), extension, current_name)

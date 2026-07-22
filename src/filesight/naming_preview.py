@@ -115,8 +115,11 @@ class NamingSession:
             index=index,
             extra=extra,
         )
-        # de-duplicate across the whole report
-        naming.suggested_name = self._allocator.allocate(naming.base_name, ext)
+        # De-duplicate across the whole report, letting a file keep a name
+        # it already has rather than shuffling names between look-alikes.
+        naming.suggested_name = self._allocator.allocate(
+            naming.base_name, ext, original_name
+        )
         return NamingOutcome(
             features=features, classification=classification, naming=naming
         )
