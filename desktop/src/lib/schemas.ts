@@ -132,6 +132,22 @@ export const reportSchema = z.object({
   }),
   files: z.array(fileEntrySchema),
   naming_configuration: z.unknown().optional(),
+  inference: z
+    .object({
+      requested_backend: z.string(),
+      actual_backend: z.string(),
+      runtime: z.string(),
+      runtime_version: z.string().nullable().optional(),
+      execution_provider: z.string().nullable().optional(),
+      device_name: z.string().nullable().optional(),
+      model_id: z.string().nullable().optional(),
+      model_version: z.string().nullable().optional(),
+      fallback_occurred: z.boolean().default(false),
+      fallback_reason: z.string().nullable().optional(),
+      directml_available: z.boolean().default(false),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const validationIssueSchema = z.object({

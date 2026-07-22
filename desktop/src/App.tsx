@@ -257,6 +257,17 @@ export default function App() {
             <span className="text-sm text-slate-500">
               {enabledCount} of {report.files.length} selected for rename
             </span>
+            {report.inference ? (
+              <span
+                className="text-sm text-slate-500"
+                title={report.inference.fallback_reason ?? undefined}
+              >
+                · Inference: {report.inference.actual_backend}
+                {report.inference.device_name
+                  ? ` (${report.inference.device_name})`
+                  : ""}
+              </span>
+            ) : null}
             <div className="flex-1" />
 
             <button

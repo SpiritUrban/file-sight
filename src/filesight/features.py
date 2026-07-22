@@ -25,6 +25,8 @@ STOP_WORDS = {
     # Placeholder words must never reach a file name, even if the caption
     # literally contains them.
     "none", "null", "unknown", "undefined", "nan",
+    # Leftovers of split contractions/possessives ("loris ' s", "does n't").
+    "s", "t", "re", "ve", "ll", "m", "d", "n",
 }
 
 # Present participles / verbs commonly produced by the captioner.
@@ -55,7 +57,10 @@ _ADJECTIVES = {
     "short", "long", "wooden", "metal", "plastic", "empty", "full",
 }
 
-_WORD_RE = re.compile(r"[a-z0-9']+")
+# A token must contain a letter or digit. Captions often write possessives
+# detached ("a loris ' s face"), and treating a lone apostrophe as a word
+# pushed the meaningful words out of the subject.
+_WORD_RE = re.compile(r"[a-z0-9]+(?:'[a-z0-9]+)*")
 
 MAX_SUBJECT_WORDS = 3
 

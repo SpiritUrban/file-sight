@@ -20,6 +20,8 @@ pub struct AppSettings {
     pub last_report_path: Option<String>,
     pub last_log_path: Option<String>,
     pub onboarding_seen: bool,
+    pub backend: String,
+    pub allow_fallback: bool,
 }
 
 impl Default for AppSettings {
@@ -37,6 +39,8 @@ impl Default for AppSettings {
             last_report_path: None,
             last_log_path: None,
             onboarding_seen: false,
+            backend: "auto".to_string(),
+            allow_fallback: true,
         }
     }
 }
@@ -105,6 +109,22 @@ mod tests {
         assert!(!settings.default_recursive);
         assert!(!settings.onboarding_seen);
         assert!(settings.python_path.is_none());
+        // inference defaults: auto with fallback allowed
+        assert_eq!(settings.backend, "auto");
+        assert!(settings.allow_fallback);
+    }
+
+    #[test]
+    fn backend_settings_persist() {
+        let dir = temp_dir("settings-backend");
+        let path = settings_file(&dir);
+        let mut settings = AppSettings::default();
+        settings.backend = "onnx-directml".to_string();
+        settings.allow_fallback = false;
+        save(&path, &settings).unwrap();
+        let loaded = load(&path);
+        assert_eq!(loaded.backend, "onnx-directml");
+        assert!(!loaded.allow_fallback);
     }
 
     #[test]

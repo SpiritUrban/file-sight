@@ -169,6 +169,13 @@ def test_forbidden_characters_removed() -> None:
         assert char not in result.suggested_name
 
 
+def test_apostrophes_and_quotes_are_stripped_from_names() -> None:
+    p = built_in_profile("default")
+    result = build(p, "{subject}", feats=features(subject="loris 's face"))
+    for char in "'’`":
+        assert char not in result.suggested_name
+
+
 def test_template_cannot_create_a_path() -> None:
     p = built_in_profile("default")
     result = build(

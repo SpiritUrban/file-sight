@@ -158,6 +158,19 @@ export function mockReport(files: ScanFileEntry[] = MOCK_ENTRIES): ScanReport {
       transliterate: false,
       config_version: null,
     },
+    inference: {
+      requested_backend: "auto",
+      actual_backend: "pytorch-cpu",
+      runtime: "pytorch",
+      runtime_version: "2.13.0+cpu",
+      execution_provider: "CPU",
+      device_name: "CPU",
+      model_id: "Salesforce/blip-image-captioning-base",
+      model_version: null,
+      fallback_occurred: false,
+      fallback_reason: null,
+      directml_available: true,
+    },
   };
 }
 
@@ -188,6 +201,11 @@ export class MockWorkerClient extends BaseWorkerClient {
   async start(): Promise<string> {
     this.running = true;
     return "C:\\mock\\python.exe";
+  }
+
+  /** Expose dispatch for tests that inject custom event sequences. */
+  emitEvent(requestId: string, event: string, data: Record<string, unknown>): void {
+    this.emit(requestId, event, data);
   }
 
   async stop(): Promise<void> {
@@ -241,6 +259,59 @@ export class MockWorkerClient extends BaseWorkerClient {
           ffmpeg: { available: true, path: "C:\\ffmpeg.exe", version: "ffmpeg 8.1" },
           ffprobe: { available: true, path: "C:\\ffprobe.exe", version: "ffprobe 8.1" },
           config: { ok: true, source: "built-in", default_profile: "default" },
+          inference: {
+            backends: [
+              { backend_id: "onnx-directml", available: true },
+              { backend_id: "onnx-cpu", available: true },
+              { backend_id: "pytorch-cpu", available: true },
+            ],
+            directml_available: true,
+            gpu_name: "Radeon RX 580 Series",
+          },
+        });
+
+      case "list_backends":
+        return this.emit(requestId, "completed", {
+          backends: [
+            { backend_id: "onnx-directml", available: true },
+            { backend_id: "onnx-cpu", available: true },
+            { backend_id: "pytorch-cpu", available: true },
+          ],
+        });
+
+      case "test_backend":
+        return this.emit(requestId, "completed", {
+          backend_id: String(payload.backend ?? "onnx-directml"),
+          available: true,
+          runtime: "onnxruntime",
+          initialized: true,
+          model_loaded: true,
+          execution_provider: "DmlExecutionProvider",
+          device_name: "Radeon RX 580 Series",
+          runtime_version: "1.24.4",
+          model_id: "filesight-selftest",
+          self_test_passed: true,
+          inference_ms: 3,
+          error: null,
+          notes: [],
+        });
+
+      case "benchmark_backend":
+        this.emit(requestId, "benchmark_started", { backend: payload.backend });
+        return this.emit(requestId, "benchmark_completed", {
+          backend: String(payload.backend ?? "onnx-directml"),
+          available: true,
+          execution_provider: "DmlExecutionProvider",
+          device_name: "Radeon RX 580 Series",
+          runtime: "onnxruntime",
+          runtime_version: "1.24.4",
+          runs: 5,
+          warmup_runs: 1,
+          cold_start_ms: 120,
+          per_run_ms: [0.3, 0.28, 0.27, 0.29, 0.28],
+          average_ms: 0.284,
+          peak_ram_mb: 240,
+          error: null,
         });
 
       case "get_profiles":

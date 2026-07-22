@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional
 
-SCHEMA_VERSION = "1.3"
-SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2", "1.3"}
+SCHEMA_VERSION = "1.4"
+SUPPORTED_SCHEMA_VERSIONS = {"1.0", "1.1", "1.2", "1.3", "1.4"}
 
 MEDIA_IMAGE = "image"
 MEDIA_VIDEO = "video"
@@ -126,6 +126,23 @@ class NamingConfiguration:
 
 
 @dataclass
+class InferenceInfo:
+    """Which inference backend actually captioned this report."""
+
+    requested_backend: str
+    actual_backend: str
+    runtime: str
+    runtime_version: Optional[str] = None
+    execution_provider: Optional[str] = None
+    device_name: Optional[str] = None
+    model_id: Optional[str] = None
+    model_version: Optional[str] = None
+    fallback_occurred: bool = False
+    fallback_reason: Optional[str] = None
+    directml_available: bool = False
+
+
+@dataclass
 class FileEntry:
     original_path: str
     original_name: str
@@ -146,6 +163,9 @@ class FileEntry:
     naming: Optional[NamingResult] = None
     captured_at: Optional[str] = None
     date_source: Optional[str] = None
+    # Set only when it differs from the report-level backend (a mid-scan
+    # fallback), so a normal scan stays clean.
+    inference_backend: Optional[str] = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -157,6 +177,7 @@ class FileEntry:
             ("features", self.features),
             ("classification", self.classification),
             ("naming", self.naming),
+            ("inference_backend", self.inference_backend),
         ):
             if value is None:
                 data.pop(key, None)
@@ -203,6 +224,7 @@ class Report:
     summary: Summary
     files: list[FileEntry] = field(default_factory=list)
     naming_configuration: Optional[NamingConfiguration] = None
+    inference: Optional[InferenceInfo] = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -213,6 +235,8 @@ class Report:
             data["summary"].pop("videos", None)
         if self.naming_configuration is None:
             data.pop("naming_configuration", None)
+        if self.inference is None:
+            data.pop("inference", None)
         return data
 
 

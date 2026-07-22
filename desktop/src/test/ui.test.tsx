@@ -639,6 +639,91 @@ describe("accessibility and safety", () => {
   });
 });
 
+describe("inference backend UI", () => {
+  it("shows DirectML and the GPU name in the environment bar", async () => {
+    setup();
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/DirectML:/)).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Radeon RX 580 Series")).toBeInTheDocument();
+  });
+
+  it("shows the actual backend on the report footer, honestly", async () => {
+    await scanned();
+    render(<App />);
+    await screen.findByText("IMG_0001.jpg");
+    // captioning is pytorch-cpu; never a false "DirectML" claim here
+    expect(screen.getByText(/Inference: pytorch-cpu/)).toBeInTheDocument();
+  });
+
+  it("lets the user pick a backend and runs a backend test", async () => {
+    const user = userEvent.setup();
+    setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+    const dialog = await screen.findByRole("dialog", { name: /settings/i });
+
+    // the inference section with the four backend choices
+    expect(within(dialog).getByText("Inference")).toBeInTheDocument();
+    expect(
+      within(dialog).getByRole("option", { name: "ONNX Runtime DirectML" }),
+    ).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: /test backend/i }));
+    await waitFor(() =>
+      expect(within(dialog).getByText("DmlExecutionProvider")).toBeInTheDocument(),
+    );
+    expect(within(dialog).getByText("Passed")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("Radeon RX 580 Series").length).toBeGreaterThan(0);
+  });
+
+  it("runs a benchmark and shows real timings", async () => {
+    const user = userEvent.setup();
+    setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+    const dialog = await screen.findByRole("dialog", { name: /settings/i });
+
+    await user.click(within(dialog).getByRole("button", { name: /run benchmark/i }));
+    await waitFor(() =>
+      expect(within(dialog).getByText(/Cold start/)).toBeInTheDocument(),
+    );
+    expect(within(dialog).getByText(/0.284 ms/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/240 MB/)).toBeInTheDocument();
+  });
+
+  it("surfaces a backend test failure without crashing", async () => {
+    const user = userEvent.setup();
+    const client = new MockWorkerClient();
+    const original = client.send.bind(client);
+    client.send = async (rid, command, payload) => {
+      if (command === "test_backend") {
+        client.sent.push({ command, payload: payload ?? {} });
+        setTimeout(
+          () =>
+            client.emitEvent(rid, "error", {
+              code: "MODEL_LOAD_FAILED",
+              message: "DirectML device was removed",
+              recoverable: true,
+            }),
+          0,
+        );
+        return;
+      }
+      return original(rid, command, payload);
+    };
+    setup(client);
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /settings/i }));
+    const dialog = await screen.findByRole("dialog", { name: /settings/i });
+    await user.click(within(dialog).getByRole("button", { name: /test backend/i }));
+    await waitFor(() =>
+      expect(within(dialog).getByText(/device was removed/i)).toBeInTheDocument(),
+    );
+  });
+});
+
 describe("runtime validation", () => {
   it("accepts a well-formed worker event", () => {
     const parsed = safeParse(workerEventSchema, {

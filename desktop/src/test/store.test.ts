@@ -447,6 +447,8 @@ describe("configured tool paths", () => {
         last_report_path: null,
         last_log_path: null,
         onboarding_seen: true,
+        backend: "onnx-directml",
+        allow_fallback: false,
       },
     });
 
@@ -457,6 +459,9 @@ describe("configured tool paths", () => {
     expect(scan?.payload.ffmpeg_path).toBe("C:\\tools\\ffmpeg.exe");
     expect(scan?.payload.ffprobe_path).toBe("C:\\tools\\ffprobe.exe");
     expect(scan?.payload.config).toBe("C:\\cfg\\filesight.toml");
+    // the chosen backend and fallback policy reach the worker
+    expect(scan?.payload.backend).toBe("onnx-directml");
+    expect(scan?.payload.allow_fallback).toBe(false);
   });
 
   it("sends nulls when nothing is configured", async () => {

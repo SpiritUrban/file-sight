@@ -9,7 +9,12 @@ import {
   saveAppSettings,
 } from "@/lib/platform";
 import { useAppStore } from "@/stores/appStore";
-import type { AppSettings, WorkerEnvironment } from "@/types";
+import type {
+  AppSettings,
+  BackendDiagnostics,
+  BenchmarkResult,
+  WorkerEnvironment,
+} from "@/types";
 
 const EMPTY: AppSettings = {
   python_path: null,
@@ -24,7 +29,16 @@ const EMPTY: AppSettings = {
   last_report_path: null,
   last_log_path: null,
   onboarding_seen: false,
+  backend: "auto",
+  allow_fallback: true,
 };
+
+const BACKEND_LABELS: Array<{ value: string; label: string }> = [
+  { value: "auto", label: "Auto" },
+  { value: "onnx-directml", label: "ONNX Runtime DirectML" },
+  { value: "onnx-cpu", label: "ONNX Runtime CPU" },
+  { value: "pytorch-cpu", label: "PyTorch CPU" },
+];
 
 function PathField({
   label,
@@ -70,6 +84,9 @@ export function SettingsDialog({
   const [testResult, setTestResult] = useState<WorkerEnvironment | null>(null);
   const [testing, setTesting] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
+  const [backendDiag, setBackendDiag] = useState<BackendDiagnostics | null>(null);
+  const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
+  const [backendBusy, setBackendBusy] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -99,6 +116,68 @@ export function SettingsDialog({
       setTestError(error instanceof Error ? error.message : "Environment test failed.");
     } finally {
       setTesting(false);
+    }
+  };
+
+  const runBackendTest = async () => {
+    if (!client) return;
+    setBackendBusy("test");
+    setBackendDiag(null);
+    try {
+      const diag = (await client.request("test_backend", {
+        backend: settings.backend,
+      })) as unknown as BackendDiagnostics;
+      setBackendDiag(diag);
+    } catch (error) {
+      setBackendDiag({
+        backend_id: settings.backend,
+        available: false,
+        runtime: "unknown",
+        initialized: false,
+        model_loaded: false,
+        execution_provider: null,
+        device_name: null,
+        runtime_version: null,
+        model_id: null,
+        self_test_passed: false,
+        inference_ms: null,
+        error: error instanceof Error ? error.message : "Backend test failed.",
+        notes: [],
+      });
+    } finally {
+      setBackendBusy(null);
+    }
+  };
+
+  const runBenchmark = async () => {
+    if (!client) return;
+    setBackendBusy("bench");
+    setBenchmark(null);
+    try {
+      const backend =
+        settings.backend === "auto" ? "onnx-directml" : settings.backend;
+      const result = (await client.request("benchmark_backend", {
+        backend,
+        runs: 5,
+      })) as unknown as BenchmarkResult;
+      setBenchmark(result);
+    } catch (error) {
+      setBenchmark({
+        backend: settings.backend,
+        available: false,
+        execution_provider: null,
+        device_name: null,
+        runtime: "unknown",
+        runtime_version: null,
+        runs: 0,
+        warmup_runs: 0,
+        cold_start_ms: null,
+        per_run_ms: [],
+        average_ms: null,
+        error: error instanceof Error ? error.message : "Benchmark failed.",
+      });
+    } finally {
+      setBackendBusy(null);
     }
   };
 
@@ -208,6 +287,122 @@ export function SettingsDialog({
             />
             Include videos by default
           </label>
+        </div>
+
+        <div className="border-t border-slate-200 pt-3">
+          <h3 className="mb-2 font-medium">Inference</h3>
+          <label className="block">
+            <span className="mb-1 block text-slate-600">Backend</span>
+            <select
+              className="field w-full"
+              value={settings.backend}
+              onChange={(event) => patch({ backend: event.target.value })}
+            >
+              {BACKEND_LABELS.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="mt-2 flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={settings.allow_fallback}
+              onChange={(event) => patch({ allow_fallback: event.target.checked })}
+            />
+            Allow automatic fallback
+          </label>
+          <p className="mt-1 text-xs text-slate-500">
+            Captioning currently runs on PyTorch CPU. DirectML is verified via
+            the buttons below and shown in each report.
+          </p>
+
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void runBackendTest()}
+              disabled={backendBusy !== null}
+            >
+              {backendBusy === "test" ? "Testing…" : "Test backend"}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => void runBenchmark()}
+              disabled={backendBusy !== null}
+            >
+              {backendBusy === "bench" ? "Running…" : "Run benchmark"}
+            </button>
+          </div>
+
+          {backendDiag ? (
+            <dl className="mt-2 space-y-0.5 rounded border border-slate-200 p-2 text-xs">
+              <div className="flex justify-between">
+                <dt>Backend</dt>
+                <dd>{backendDiag.backend_id}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Provider</dt>
+                <dd>{backendDiag.execution_provider ?? "—"}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Device</dt>
+                <dd>{backendDiag.device_name ?? "—"}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>Self-test</dt>
+                <dd
+                  className={
+                    backendDiag.self_test_passed
+                      ? "text-emerald-700"
+                      : "font-medium text-red-700"
+                  }
+                >
+                  {backendDiag.self_test_passed
+                    ? "Passed"
+                    : `Failed${backendDiag.error ? `: ${backendDiag.error}` : ""}`}
+                </dd>
+              </div>
+              {backendDiag.inference_ms !== null ? (
+                <div className="flex justify-between">
+                  <dt>Warm inference</dt>
+                  <dd>{backendDiag.inference_ms} ms</dd>
+                </div>
+              ) : null}
+            </dl>
+          ) : null}
+
+          {benchmark ? (
+            <dl className="mt-2 space-y-0.5 rounded border border-slate-200 p-2 text-xs">
+              <div className="flex justify-between">
+                <dt>Benchmark backend</dt>
+                <dd>{benchmark.execution_provider ?? benchmark.backend}</dd>
+              </div>
+              {benchmark.error ? (
+                <p className="text-red-700">{benchmark.error}</p>
+              ) : (
+                <>
+                  <div className="flex justify-between">
+                    <dt>Cold start</dt>
+                    <dd>{benchmark.cold_start_ms} ms</dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt>Average of {benchmark.runs}</dt>
+                    <dd>{benchmark.average_ms} ms</dd>
+                  </div>
+                  {benchmark.peak_ram_mb ? (
+                    <div className="flex justify-between">
+                      <dt>Peak RAM</dt>
+                      <dd>{benchmark.peak_ram_mb} MB</dd>
+                    </div>
+                  ) : null}
+                </>
+              )}
+            </dl>
+          ) : null}
         </div>
 
         <div className="border-t border-slate-200 pt-3">

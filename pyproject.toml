@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "filesight"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local image analysis tool that suggests human-readable file names"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,6 +18,10 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+# DirectML/ONNX acceleration (Windows). Installed separately for the
+# bundled build; onnxruntime-directml also provides the CPU provider.
+directml = ["onnxruntime-directml>=1.24"]
+onnx = ["onnxruntime>=1.18"]
 
 [project.scripts]
 filesight = "filesight.cli:main"

@@ -77,6 +77,9 @@ pub const ALLOWED_COMMANDS: &[&str] = &[
     "get_config",
     "get_environment",
     "make_thumbnail",
+    "test_backend",
+    "benchmark_backend",
+    "list_backends",
 ];
 
 pub fn command_allowed(command: &str) -> bool {

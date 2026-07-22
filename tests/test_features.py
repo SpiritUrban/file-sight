@@ -123,6 +123,37 @@ def test_fallback_does_not_override_existing_subject() -> None:
     assert f.subject == "black dog"
 
 
+def test_detached_possessive_does_not_displace_real_words() -> None:
+    """Captions write possessives apart: "a slow loris ' s face".
+
+    A lone apostrophe used to count as a word, so the subject became
+    "' s face" and the meaningful words were pushed out.
+    """
+    f = extract_features("a close up of a slow loris ' s face")
+    assert f.subject == "slow loris face"
+    assert "'" not in (f.subject or "")
+    assert "s" not in f.objects
+
+
+def test_attached_possessive_is_also_cleaned() -> None:
+    f = extract_features("a slow loris 's face")
+    assert f.subject == "slow loris face"
+
+
+def test_contraction_fragments_are_dropped() -> None:
+    f = extract_features("a dog that does n ' t sit")
+    for value in (f.subject or "").split():
+        assert value not in ("n", "t", "'")
+
+
+def test_real_contractions_survive_as_one_word() -> None:
+    from filesight.features import _WORD_RE
+
+    assert _WORD_RE.findall("a dog don't sit") == ["a", "dog", "don't", "sit"]
+    # a bare apostrophe is never a token
+    assert _WORD_RE.findall("a dog ' s toy") == ["a", "dog", "s", "toy"]
+
+
 def test_no_null_words_leak_into_features() -> None:
     for caption in ("a dog", "", "a photo of", "none"):
         f = extract_features(caption)

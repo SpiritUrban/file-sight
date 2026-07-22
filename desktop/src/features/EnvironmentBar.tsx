@@ -57,6 +57,15 @@ export function EnvironmentBar() {
         value={environment.ffmpeg.available ? "Ready" : "Not found"}
         ok={environment.ffmpeg.available}
       />
+      <Pill
+        label="DirectML"
+        value={
+          environment.inference?.directml_available
+            ? (environment.inference.gpu_name ?? "Available")
+            : "Not available"
+        }
+        ok={Boolean(environment.inference?.directml_available)}
+      />
     </div>
   );
 }

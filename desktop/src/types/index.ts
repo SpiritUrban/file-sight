@@ -130,6 +130,20 @@ export interface NamingConfiguration {
   config_version: string | null;
 }
 
+export interface InferenceInfo {
+  requested_backend: string;
+  actual_backend: string;
+  runtime: string;
+  runtime_version: string | null;
+  execution_provider: string | null;
+  device_name: string | null;
+  model_id: string | null;
+  model_version?: string | null;
+  fallback_occurred: boolean;
+  fallback_reason: string | null;
+  directml_available: boolean;
+}
+
 export interface ScanReport {
   schema_version: string;
   created_at: string;
@@ -139,6 +153,48 @@ export interface ScanReport {
   summary: ReportSummary;
   files: ScanFileEntry[];
   naming_configuration?: NamingConfiguration | null;
+  inference?: InferenceInfo | null;
+}
+
+export type BackendId = "auto" | "onnx-directml" | "onnx-cpu" | "pytorch-cpu";
+
+export interface BackendDiagnostics {
+  backend_id: string;
+  available: boolean;
+  runtime: string;
+  initialized: boolean;
+  model_loaded: boolean;
+  execution_provider: string | null;
+  device_name: string | null;
+  runtime_version: string | null;
+  model_id: string | null;
+  self_test_passed: boolean | null;
+  inference_ms: number | null;
+  error: string | null;
+  notes: string[];
+}
+
+export interface BenchmarkResult {
+  backend: string;
+  available: boolean;
+  execution_provider: string | null;
+  device_name: string | null;
+  runtime: string;
+  runtime_version: string | null;
+  runs: number;
+  warmup_runs: number;
+  cold_start_ms: number | null;
+  per_run_ms: number[];
+  average_ms: number | null;
+  peak_ram_mb?: number | null;
+  error: string | null;
+}
+
+export interface InferenceEnvironment {
+  backends: Array<{ backend_id: string; available: boolean }>;
+  directml_available: boolean;
+  gpu_name: string | null;
+  error?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -160,7 +216,10 @@ export type WorkerCommand =
   | "get_profiles"
   | "get_config"
   | "get_environment"
-  | "make_thumbnail";
+  | "make_thumbnail"
+  | "test_backend"
+  | "benchmark_backend"
+  | "list_backends";
 
 export interface WorkerRequest {
   request_id: string;
@@ -297,6 +356,7 @@ export interface WorkerEnvironment {
   ffmpeg: { available: boolean; path?: string | null; version?: string | null; message?: string };
   ffprobe: { available: boolean; path?: string | null; version?: string | null; message?: string };
   config: { ok: boolean; source?: string; default_profile?: string; message?: string };
+  inference?: InferenceEnvironment;
 }
 
 export interface AppSettings {
@@ -312,6 +372,8 @@ export interface AppSettings {
   last_report_path: string | null;
   last_log_path: string | null;
   onboarding_seen: boolean;
+  backend: string;
+  allow_fallback: boolean;
 }
 
 /* ------------------------------------------------------------------ */

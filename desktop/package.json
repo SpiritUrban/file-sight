@@ -1,12 +1,13 @@
 {
   "name": "filesight-desktop",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
-    "dev": "tauri dev",
+    "dev": "node scripts/dev.mjs",
     "dev:vite": "vite",
     "dev:mock": "vite --mode mock",
+    "dev:tauri-fixed": "tauri dev",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",

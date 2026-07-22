@@ -7,11 +7,13 @@ export default defineConfig({
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },
-  // Tauri expects a fixed port and clear errors rather than a fallback.
   clearScreen: false,
   server: {
+    // Prefer 1420; if busy (IPv4 or IPv6), Vite picks the next free port.
+    // scripts/dev.mjs starts Vite first and syncs Tauri's devUrl to the
+    // actual bound port.
     port: 1420,
-    strictPort: true,
+    strictPort: false,
     watch: { ignored: ["**/src-tauri/**"] },
   },
   build: {

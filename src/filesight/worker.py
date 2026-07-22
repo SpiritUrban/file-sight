@@ -96,6 +96,7 @@ class Worker:
         self.emitter = emitter or Emitter()
         self._captioner = None
         self._model_loaded = False
+        self._onnx_warmed = False
         self._cancel_flags: dict[str, threading.Event] = {}
         self._lock = threading.Lock()
         self._pending: "queue.Queue" = queue.Queue()
@@ -108,15 +109,46 @@ class Worker:
         return self._model_loaded
 
     def preload(self) -> None:
-        """Import and load the vision model *before* the reader thread starts.
+        """Warm heavy native runtimes *before* the reader thread starts.
 
-        On Windows, importing the torch/transformers C extensions after the
-        worker has begun serving a piped session deadlocks inside the
-        extension loader. Doing it up front — no reader thread, nothing
-        written to stdout yet — avoids that entirely, which is why the
-        desktop app launches the worker with --preload.
+        On Windows, loading torch/transformers OR the onnxruntime + DirectML
+        (D3D12) native DLLs *after* the worker has begun serving a piped
+        session deadlocks inside the Windows loader lock (the reader thread
+        is blocked in a stdin read). Doing it up front avoids that, which is
+        why the desktop app launches the worker with --preload.
         """
         self.get_captioner(None)
+        self.warm_onnx_runtime()
+        # Any DLL loaded on demand while the reader thread is blocked on
+        # stdin can deadlock the Windows loader, so touch the ones the
+        # benchmark command needs (psapi for peak RAM) up front too.
+        try:
+            from filesight.inference.registry import _peak_ram_mb
+
+            _peak_ram_mb()
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+    def warm_onnx_runtime(self) -> None:
+        """Load the ONNX Runtime + DirectML native DLLs, discarding the session.
+
+        Best effort: a machine without DirectML (or without onnxruntime)
+        simply skips it. Failure here never blocks startup.
+        """
+        if self._onnx_warmed:
+            return
+        self._onnx_warmed = True
+        try:
+            from filesight.inference.registry import _directml_available, make_backend
+
+            if _directml_available():
+                backend = make_backend("onnx-directml")
+            else:
+                backend = make_backend("onnx-cpu")
+            backend.self_test()  # creates + runs a real session, then...
+            backend.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            log(f"onnx warm-up skipped: {exc}")
 
     def get_captioner(self, request_id: Optional[str]):
         """Load the vision model once per process."""
@@ -442,6 +474,23 @@ def cmd_get_environment(worker: Worker, request_id: str, payload: dict) -> None:
     data["ffmpeg"] = _probe_tool(payload.get("ffmpeg_path"), "ffmpeg")
     data["ffprobe"] = _probe_tool(payload.get("ffprobe_path"), "ffprobe")
 
+    # Inference backends (cheap availability, no model load, no self-test).
+    try:
+        from filesight.inference.base import detect_gpu_name
+        from filesight.inference.registry import available_backends
+
+        backends = available_backends()
+        dml = next(
+            (b for b in backends if b["backend_id"] == "onnx-directml"), None
+        )
+        data["inference"] = {
+            "backends": backends,
+            "directml_available": bool(dml and dml["available"]),
+            "gpu_name": detect_gpu_name() if dml and dml["available"] else None,
+        }
+    except Exception as exc:  # pragma: no cover - defensive
+        data["inference"] = {"error": str(exc)}
+
     config_path = payload.get("config")
     try:
         config = load_config(
@@ -514,6 +563,22 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
             )
         except FFmpegNotFound as exc:
             raise WorkerError("FFMPEG_NOT_FOUND", str(exc)) from exc
+
+    # Resolve which inference backend will caption this scan (metadata +
+    # honest reporting). Captioning currently runs on PyTorch CPU; the
+    # selection records whether DirectML is available and any fallback.
+    from filesight.inference import resolve_backend
+    from filesight.inference.base import BackendError
+
+    emit(request_id, "backend_detection_started", {})
+    try:
+        selection = resolve_backend(
+            requested=payload.get("backend", "auto"),
+            allow_fallback=payload.get("allow_fallback", True),
+        )
+    except BackendError as exc:
+        raise WorkerError(exc.code, str(exc)) from exc
+    emit(request_id, "backend_detected", selection.report_dict())
 
     captioner = worker.get_captioner(request_id)
     emit(request_id, "phase", {"phase": "Analyzing"})
@@ -593,6 +658,20 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
 
     emit(request_id, "phase", {"phase": "Writing report"})
     duration = time.perf_counter() - started_at
+    from filesight.models import InferenceInfo
+
+    inference = InferenceInfo(
+        requested_backend=selection.requested_backend,
+        actual_backend=selection.actual_backend,
+        runtime=selection.runtime,
+        runtime_version=selection.runtime_version,
+        execution_provider=selection.execution_provider,
+        device_name=selection.device_name,
+        model_id=selection.model_id,
+        fallback_occurred=selection.fallback_occurred,
+        fallback_reason=selection.fallback_reason,
+        directml_available=selection.directml_available,
+    )
     report = build_report(
         source_directory=directory, recursive=recursive,
         model=ModelInfo(provider="huggingface", name=captioner.model_name,
@@ -605,6 +684,7 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
             language=profile.language, transliterate=profile.transliterate,
             config_version=config.config_version,
         ),
+        inference=inference,
     )
     output = payload.get("output")
     report_path = Path(output) if output else directory / "filesight-report.json"
@@ -845,6 +925,42 @@ def cmd_regenerate_names(worker: Worker, request_id: str, payload: dict) -> None
     )
 
 
+def cmd_test_backend(worker: Worker, request_id: str, payload: dict) -> None:
+    """Run a backend self-test and return its diagnostics."""
+    from filesight.inference import test_backend
+
+    backend_id = str(payload.get("backend") or "auto")
+    if backend_id == "auto":
+        # "auto" is a selection policy, not a testable backend; pick the
+        # best concrete one to test.
+        from filesight.inference.registry import _directml_available
+
+        backend_id = "onnx-directml" if _directml_available() else "onnx-cpu"
+    diag = test_backend(backend_id)
+    worker.emitter.emit(request_id, "completed", diag.to_dict())
+
+
+def cmd_benchmark_backend(worker: Worker, request_id: str, payload: dict) -> None:
+    """Benchmark a backend. Never renames anything."""
+    from filesight.inference import benchmark_backend
+
+    worker.emitter.emit(request_id, "benchmark_started",
+                        {"backend": payload.get("backend")})
+    result = benchmark_backend(
+        str(payload.get("backend") or "onnx-cpu"),
+        runs=int(payload.get("runs") or 5),
+        warmup_runs=int(payload.get("warmup_runs") or 1),
+    )
+    worker.emitter.emit(request_id, "benchmark_completed", result)
+
+
+def cmd_list_backends(worker: Worker, request_id: str, payload: dict) -> None:
+    from filesight.inference.registry import available_backends
+
+    worker.emitter.emit(request_id, "completed",
+                        {"backends": available_backends()})
+
+
 def cmd_make_thumbnail(worker: Worker, request_id: str, payload: dict) -> None:
     """Create (or reuse) a cached thumbnail. Images use Pillow, videos FFmpeg."""
     from filesight.thumbnails import make_thumbnail
@@ -882,6 +998,9 @@ HANDLERS: dict[str, Callable[[Worker, str, dict], None]] = {
     "undo": cmd_undo,
     "regenerate_names": cmd_regenerate_names,
     "make_thumbnail": cmd_make_thumbnail,
+    "test_backend": cmd_test_backend,
+    "benchmark_backend": cmd_benchmark_backend,
+    "list_backends": cmd_list_backends,
 }
 
 # Commands answered synchronously on the reader thread (they are fast and

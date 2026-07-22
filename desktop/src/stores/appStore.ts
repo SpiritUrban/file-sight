@@ -412,6 +412,9 @@ export const useAppStore = create<AppStore>((set, get) => ({
       language: options.language,
       transliterate: options.transliterate,
       output: options.outputPath,
+      // Which inference backend to request, and whether it may fall back.
+      backend: settings?.backend ?? "auto",
+      allow_fallback: settings?.allow_fallback ?? true,
       // Without these a configured FFmpeg would be ignored and every
       // video would fail with FFMPEG_NOT_FOUND.
       ...toolPayload(settings),

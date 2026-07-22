@@ -436,6 +436,66 @@ def test_scan_requires_at_least_one_media_type(worker, tmp_path: Path) -> None:
     assert events.last()["data"]["code"] == "NO_MEDIA_SELECTED"
 
 
+def test_list_backends_command(worker) -> None:
+    instance, events = worker
+    run(instance, "list_backends")
+    ids = {b["backend_id"] for b in events.last()["data"]["backends"]}
+    assert ids == {"onnx-directml", "onnx-cpu", "pytorch-cpu"}
+
+
+def test_test_backend_command_returns_diagnostics(worker) -> None:
+    instance, events = worker
+    run(instance, "test_backend", {"backend": "onnx-cpu"})
+    data = events.last()["data"]
+    assert data["backend_id"] == "onnx-cpu"
+    assert data["self_test_passed"] is True
+    assert data["execution_provider"] == "CPUExecutionProvider"
+
+
+def test_benchmark_backend_command_emits_events(worker) -> None:
+    instance, events = worker
+    run(instance, "benchmark_backend", {"backend": "onnx-cpu", "runs": 2})
+    kinds = events.kinds()
+    assert "benchmark_started" in kinds
+    assert events.last()["event"] == "benchmark_completed"
+    assert len(events.last()["data"]["per_run_ms"]) == 2
+
+
+def test_get_environment_reports_inference_backends(worker) -> None:
+    instance, events = worker
+    run(instance, "get_environment")
+    inference = events.last()["data"].get("inference", {})
+    assert "backends" in inference
+    assert "directml_available" in inference
+
+
+def test_scan_records_inference_metadata(worker, tmp_path: Path) -> None:
+    """A scan report must state which backend actually captioned it."""
+    from helpers import make_file
+
+    make_file(tmp_path / "IMG_1.jpg")
+
+    class StubCaptioner:
+        model_name = "stub"
+        device = "cpu"
+
+        def caption(self, image):
+            return "a black dog"
+
+    instance, events = worker
+    # avoid loading the real model
+    instance._captioner = StubCaptioner()
+    instance._model_loaded = True
+
+    run(instance, "scan", {"directory": str(tmp_path), "include_images": True})
+    data = events.last()["data"]
+    inference = data["report"]["inference"]
+    # captioning is honestly PyTorch CPU, never falsely "directml"
+    assert inference["actual_backend"] == "pytorch-cpu"
+    assert inference["requested_backend"] == "auto"
+    assert "directml_available" in inference
+
+
 def test_make_thumbnail_for_an_image(worker, tmp_path: Path) -> None:
     from PIL import Image
 

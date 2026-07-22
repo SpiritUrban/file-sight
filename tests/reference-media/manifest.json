@@ -1,0 +1,19 @@
+{
+  "manifest_version": "1.0",
+  "description": "Reference set for future PyTorch-vs-ONNX caption comparison. Points at a local folder; large or private media is NOT committed. Set FILESIGHT_REFERENCE_DIR to the folder holding the files below.",
+  "media_dir_env": "FILESIGHT_REFERENCE_DIR",
+  "files": [
+    { "file": "dog-in-snow.jpg", "expected_concepts": ["dog", "snow"], "expected_category": "animals" },
+    { "file": "cat-on-sofa.jpg", "expected_concepts": ["cat"], "expected_category": "animals" },
+    { "file": "woman-near-car.jpg", "expected_concepts": ["woman", "car"], "expected_category": "people" },
+    { "file": "red-car-street.jpg", "expected_concepts": ["car"], "expected_category": "vehicles" },
+    { "file": "mountain-sunset.jpg", "expected_concepts": ["mountain", "sunset"], "expected_category": "nature" },
+    { "file": "plate-of-food.jpg", "expected_concepts": ["food"], "expected_category": "food" },
+    { "file": "scanned-invoice.jpg", "expected_concepts": ["document", "invoice"], "expected_category": "documents" },
+    { "file": "browser-screenshot.png", "expected_concepts": ["screen", "browser"], "expected_category": "screenshots" },
+    { "file": "code-editor.png", "expected_concepts": ["code", "editor"], "expected_category": "code" },
+    { "file": "dark-frame.jpg", "expected_concepts": [], "expected_category": "other" },
+    { "file": "vertical-phone.jpg", "expected_concepts": ["person"], "expected_category": "people" },
+    { "file": "short-clip.mp4", "expected_concepts": [], "expected_category": "other", "media_type": "video" }
+  ]
+}

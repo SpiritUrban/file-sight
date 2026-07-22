@@ -90,7 +90,7 @@ def test_naming_configuration_recorded(tmp_path: Path) -> None:
     naming_config = updated["naming_configuration"]
     assert naming_config["profile"] == "photos"
     assert naming_config["source"] == "built-in"
-    assert updated["schema_version"] == "1.3"
+    assert updated["schema_version"] == "1.4"
 
 
 def test_failed_entries_keep_their_data(tmp_path: Path) -> None:
@@ -177,9 +177,29 @@ def test_write_report_dict_is_utf8(tmp_path: Path) -> None:
 
 
 def test_transform_never_imports_torch(tmp_path: Path) -> None:
-    # regenerating names must not pull in the vision stack
+    # Regenerating names must not pull in the vision stack. Checked in a
+    # fresh interpreter, since another test in this process legitimately
+    # loads torch and would pollute sys.modules here.
+    import json
+    import subprocess
+
     a = make_file(tmp_path / "IMG_10.jpg")
     report = old_report(tmp_path, [entry(a, "a black dog running")])
-    regenerate_suggestions(report, built_in_profile("default"))
-    assert "torch" not in sys.modules
-    assert "transformers" not in sys.modules
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+
+    code = (
+        "import sys, json;"
+        "from filesight.report import load_report_dict;"
+        "from filesight.report_transform import regenerate_suggestions;"
+        "from filesight.profiles import built_in_profile;"
+        f"data = load_report_dict(__import__('pathlib').Path({str(report_path)!r}));"
+        "regenerate_suggestions(data, built_in_profile('default'));"
+        "heavy = [m for m in ('torch', 'transformers') if m in sys.modules];"
+        "print('HEAVY:' + ','.join(heavy))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, timeout=120
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip().endswith("HEAVY:"), result.stdout

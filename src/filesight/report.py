@@ -9,6 +9,7 @@ from typing import Optional
 
 from filesight.models import (
     MEDIA_VIDEO,
+    InferenceInfo,
     NamingConfiguration,
     SCHEMA_VERSION,
     SUPPORTED_SCHEMA_VERSIONS,
@@ -79,6 +80,7 @@ def build_report(
     duration_seconds: float,
     videos_enabled: bool = False,
     naming_configuration: Optional["NamingConfiguration"] = None,
+    inference: Optional["InferenceInfo"] = None,
 ) -> Report:
     processed = sum(1 for e in entries if e.status == "success")
     failed = sum(1 for e in entries if e.status == "failed")
@@ -108,6 +110,7 @@ def build_report(
         ),
         files=entries,
         naming_configuration=naming_configuration,
+        inference=inference,
     )
 
 

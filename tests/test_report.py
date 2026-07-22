@@ -46,7 +46,7 @@ def test_pipeline_success_and_report_roundtrip(tmp_path: Path) -> None:
     write_report(report, output)
 
     data = json.loads(output.read_text(encoding="utf-8"))
-    assert data["schema_version"] == "1.3"
+    assert data["schema_version"] == "1.4"
     assert data["recursive"] is False
     assert data["model"]["device"] == "cpu"
     assert data["summary"] == {

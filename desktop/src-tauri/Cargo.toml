@@ -1,6 +1,6 @@
 [package]
 name = "filesight-desktop"
-version = "0.5.0"
+version = "0.6.0"
 description = "FileSight desktop UI"
 authors = ["FileSight"]
 edition = "2021"

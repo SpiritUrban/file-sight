@@ -41,6 +41,8 @@ _DROPPED_WORDS = {
     "showing",
     "arafed",  # known BLIP artifact token
     "araffe",
+    # Fragments left when a contraction/possessive is split on punctuation.
+    "s", "t", "re", "ve", "ll",
 }
 
 _NON_WORD_RE = re.compile(r"[^a-z0-9]+")

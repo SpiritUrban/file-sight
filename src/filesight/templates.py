@@ -178,9 +178,13 @@ class FilenameTemplateEngine:
 
         # Any run of whitespace or separator characters collapses to one.
         text = re.sub(r"[\s\-_]+", separator, text)
-        # Strip characters Windows forbids, plus path separators and dots.
+        # Strip characters Windows forbids, plus path separators, dots and
+        # quotes. Apostrophes are legal in file names but only ever arrive
+        # here as caption punctuation, never as meaning.
         text = "".join(
-            ch for ch in text if ch not in FORBIDDEN_CHARS and ch not in "./\\"
+            ch
+            for ch in text
+            if ch not in FORBIDDEN_CHARS and ch not in "./\\'’ʼ`"
         )
         text = re.sub(re.escape(separator) + r"{2,}", separator, text)
         text = text.strip(separator + " .")

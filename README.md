@@ -35,6 +35,17 @@ FileSight — локальна консольна програма, яка ан�
 - `undo` — скасування останньої операції за журналом, теж із dry-run.
 - Команди роботи зі звітом запускаються миттєво і не завантажують нейромережу.
 
+**Ітерація 6 (inference backends + DirectML):**
+
+- Абстракція inference-backend'ів: `pytorch-cpu`, `onnx-cpu`, `onnx-directml`.
+- **DirectML для AMD Radeon RX 580** через ONNX Runtime — реально
+  перевірено (session + self-test на GPU); вибір backend і benchmark у Settings.
+- Чесний репортинг: у кожному звіті вказано фактичний backend; програма
+  ніколи не заявляє GPU, коли inference насправді на CPU.
+- **Обмеження цієї версії:** captioning-модель ще не експортована в ONNX,
+  тому captioning виконується на PyTorch CPU; DirectML перевірено через
+  Test backend / Benchmark. Деталі — `docs/iteration-06.md`.
+
 **Ітерація 4 (профілі, категорії, шаблони):**
 
 - Конфігурація `filesight.toml`: профілі іменування, користувацькі категорії.
@@ -55,6 +66,35 @@ FileSight — локальна консольна програма, яка ан�
 - Відео потрапляє в той самий звіт і перейменовується/скасовується тими
   самими `validate` / `rename` / `undo` (без перекодування, вміст незмінний).
 - Аналіз відео вимкнено за замовчуванням — вмикається `--include-videos`.
+
+## Inference backend і DirectML (ітерація 6)
+
+FileSight обирає, чим виконувати аналіз зображень:
+
+| Backend | Що це |
+| --- | --- |
+| `auto` | автовибір (наразі captioning → `pytorch-cpu`) |
+| `onnx-directml` | ONNX Runtime + DirectML (AMD/Intel/NVIDIA GPU) |
+| `onnx-cpu` | ONNX Runtime на CPU |
+| `pytorch-cpu` | PyTorch на CPU (поточна captioning-модель) |
+
+Налаштування — у **Settings → Inference**: вибір backend, «Allow automatic
+fallback», кнопки **Test backend** і **Run benchmark**. Статус-бар показує
+`DirectML: Radeon RX 580 Series`, коли провайдер доступний; у футері звіту
+видно фактичний backend.
+
+Для DirectML на Windows встановіть:
+
+```powershell
+pip install onnxruntime-directml
+```
+
+**Важливо (чесно):** у цій версії DirectML перевірено через Test backend і
+Benchmark (реальний session на GPU), але **сам captioning ще виконується на
+PyTorch CPU** — модель не експортована в ONNX. Тому у звіті буде
+`actual_backend: pytorch-cpu`, а `directml_available: true`. Програма
+**ніколи** не показує GPU, коли працює CPU. Деталі й план —
+`docs/iteration-06.md`, `docs/model-quality-report.md`.
 
 ## Desktop-застосунок
 

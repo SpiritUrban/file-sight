@@ -105,7 +105,8 @@ export abstract class BaseWorkerClient implements WorkerClient {
       const unsubscribe = this.subscribe((event) => {
         if (event.request_id !== requestId) return;
         onEvent?.(event);
-        if (event.event === "completed") {
+        // benchmark ends with its own terminal event, not "completed".
+        if (event.event === "completed" || event.event === "benchmark_completed") {
           unsubscribe();
           resolve(event.data as T);
         } else if (event.event === "error") {
