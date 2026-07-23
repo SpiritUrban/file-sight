@@ -18,9 +18,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
-# DirectML/ONNX acceleration (Windows). Installed separately for the
-# bundled build; onnxruntime-directml also provides the CPU provider.
+# Exactly ONE of these onnxruntime wheels may be installed at a time
+# (they all ship the same top-level `onnxruntime` package).
+# DirectML (AMD / Intel on Windows) — also provides the CPU provider:
 directml = ["onnxruntime-directml>=1.24"]
+# NVIDIA CUDA (GeForce / RTX) — also provides the CPU provider:
+cuda = ["onnxruntime-gpu>=1.18"]
+# CPU-only ONNX (any OS; no GPU EP):
 onnx = ["onnxruntime>=1.18"]
 
 [project.scripts]

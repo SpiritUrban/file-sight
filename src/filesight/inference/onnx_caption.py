@@ -12,15 +12,19 @@ EOS. Captions are ~15 tokens, so re-running the decoder each step costs
 far less than it sounds, and it keeps the graph numerically identical to
 PyTorch (verified: 3/3 identical captions).
 
-Placement of the two sessions is deliberate and asymmetric. The vision
-encoder — the expensive half — runs on the requested accelerator. The
-decoder runs on CPU even in the DirectML configuration, because DirectML
-rejects a Reshape in that graph:
+Placement of the two sessions is deliberate and asymmetric:
 
-    Non-zero status code ... Reshape node 'node_view_1' ... 0x8007023E
+* **CUDA (NVIDIA):** both vision encoder and text decoder run on the GPU.
+  The decoder graph works with ``CUDAExecutionProvider``.
+* **DirectML (AMD/Intel):** vision on DirectML, decoder on CPU — DirectML
+  rejects a Reshape in the decoder graph:
 
-Rather than pretend, the backend reports both placements separately so a
-report can say exactly which device did which half.
+      Non-zero status code ... Reshape node 'node_view_1' ... 0x8007023E
+
+* **ONNX CPU:** both halves on CPU.
+
+Reports name both placements when they differ, so "DirectML" is never
+read as "the whole model ran on the GPU".
 """
 
 from __future__ import annotations
@@ -39,8 +43,23 @@ _MODEL_SUBDIR = Path("FileSight") / "models" / "blip-onnx"
 
 MAX_NEW_TOKENS = 20
 
-# The decoder cannot run on DirectML; see the module docstring.
-DECODER_PROVIDER = "CPUExecutionProvider"
+CUDA_PROVIDER = "CUDAExecutionProvider"
+DML_PROVIDER = "DmlExecutionProvider"
+CPU_PROVIDER = "CPUExecutionProvider"
+
+# Legacy alias: DirectML / default hybrid decoder placement.
+DECODER_PROVIDER = CPU_PROVIDER
+
+
+def decoder_provider_for(vision_provider: str) -> str:
+    """Where the text decoder should run for a given vision provider.
+
+    CUDA can host both graphs. DirectML cannot host the decoder (Reshape),
+    so it falls back to CPU. CPU stays on CPU.
+    """
+    if vision_provider == CUDA_PROVIDER:
+        return CUDA_PROVIDER
+    return CPU_PROVIDER
 
 
 def model_dir_candidates() -> list[Path]:
@@ -164,10 +183,17 @@ def model_id(model_dir: Optional[Path] = None) -> Optional[str]:
 class OnnxBlipCaptioner:
     """Greedy BLIP captioning over two ONNX Runtime sessions."""
 
-    def __init__(self, model_dir: Path, vision_provider: str) -> None:
+    def __init__(
+        self,
+        model_dir: Path,
+        vision_provider: str,
+        decoder_provider: Optional[str] = None,
+    ) -> None:
         self.model_dir = model_dir
         self.vision_provider = vision_provider
-        self.decoder_provider = DECODER_PROVIDER
+        self.decoder_provider = decoder_provider or decoder_provider_for(
+            vision_provider
+        )
         self._vision = None
         self._decoder = None
         self._processor = None
@@ -181,7 +207,8 @@ class OnnxBlipCaptioner:
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-        options.enable_mem_pattern = provider != "DmlExecutionProvider"
+        # DirectML requires mem_pattern off; CUDA/CPU prefer it on.
+        options.enable_mem_pattern = provider != DML_PROVIDER
         return options
 
     def initialize(self) -> None:
@@ -203,11 +230,25 @@ class OnnxBlipCaptioner:
             self._session_options(self.vision_provider),
             providers=[self.vision_provider],
         )
-        self._decoder = ort.InferenceSession(
-            str(self.model_dir / "text_decoder.onnx"),
-            self._session_options(self.decoder_provider),
-            providers=[self.decoder_provider],
-        )
+        try:
+            self._decoder = ort.InferenceSession(
+                str(self.model_dir / "text_decoder.onnx"),
+                self._session_options(self.decoder_provider),
+                providers=[self.decoder_provider],
+            )
+        except Exception:
+            # CUDA path may still hit an unsupported op; fall back to CPU
+            # decoder rather than failing the whole scan. Report stays honest
+            # via actual_providers().
+            if self.decoder_provider != CPU_PROVIDER:
+                self.decoder_provider = CPU_PROVIDER
+                self._decoder = ort.InferenceSession(
+                    str(self.model_dir / "text_decoder.onnx"),
+                    self._session_options(self.decoder_provider),
+                    providers=[self.decoder_provider],
+                )
+            else:
+                raise
 
     # -- inference ---------------------------------------------------------
 

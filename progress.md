@@ -1,6 +1,6 @@
 # FileSight — прогрес
 
-Останнє оновлення: 2026-07-23 (wiring: scan реально captionить через resolve_backend).
+Останнє оновлення: 2026-07-23 (підготовка NVIDIA/CUDA для GTX ПК).
 
 ## Поточний стан
 
@@ -117,8 +117,9 @@ scan ~12 s/file через non-inference overhead).
    scan завжди `actual_backend: pytorch-cpu`, хоч би який бекенд обрали.
    DirectML перевірено лише self-test/benchmark. Це навмисно й чесно
    відображено в звіті (`considered`, `fallback_reason`) та UI.
-1a. **NVIDIA/CUDA написана, але не перевірена на залізі** — у цій машині
-   немає NVIDIA GPU, а `onnxruntime-directml` не містить CUDA-провайдера.
+1a. **NVIDIA/CUDA підготовлено до GTX-ПК** (код + docs), на AMD-машині
+   не перевірено на залізі. Decoder на CUDA (не hybrid); setup:
+   `docs/nvidia-setup.md`, `scripts/setup_nvidia.ps1`, extra `.[cuda]`.
    Не вважати робочою, поки не буде запуску на реальній NVIDIA.
 2. **Немає bundled Python / offline installer / clean-machine smoke test** у
    цій сесії — worker досі потребує встановленого Python (як в іт.5).

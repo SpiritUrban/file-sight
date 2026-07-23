@@ -399,6 +399,34 @@ def test_directml_sessions_are_reused_not_recreated() -> None:
     assert _SESSION_CACHE["DmlExecutionProvider"] is session_a
 
 
+# --- decoder placement ----------------------------------------------------
+
+
+def test_decoder_provider_cuda_uses_gpu() -> None:
+    from filesight.inference.onnx_caption import decoder_provider_for
+
+    assert decoder_provider_for("CUDAExecutionProvider") == "CUDAExecutionProvider"
+
+
+def test_decoder_provider_directml_stays_on_cpu() -> None:
+    from filesight.inference.onnx_caption import decoder_provider_for
+
+    assert decoder_provider_for("DmlExecutionProvider") == "CPUExecutionProvider"
+    assert decoder_provider_for("CPUExecutionProvider") == "CPUExecutionProvider"
+
+
+def test_onnx_blip_captioner_defaults_decoder_from_vision(tmp_path) -> None:
+    from pathlib import Path
+
+    from filesight.inference.onnx_caption import OnnxBlipCaptioner
+
+    cuda = OnnxBlipCaptioner(Path(tmp_path), "CUDAExecutionProvider")
+    assert cuda.decoder_provider == "CUDAExecutionProvider"
+
+    dml = OnnxBlipCaptioner(Path(tmp_path), "DmlExecutionProvider")
+    assert dml.decoder_provider == "CPUExecutionProvider"
+
+
 # --- CUDA / NVIDIA --------------------------------------------------------
 
 
