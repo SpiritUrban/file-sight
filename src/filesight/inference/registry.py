@@ -202,11 +202,10 @@ def resolve_backend(
     """Pick the backend that will caption this scan, honestly.
 
     ``auto`` walks the priority order and takes the best backend that can
-    actually caption. Today only PyTorch CPU has a caption model, so auto
-    still lands on the CPU even where DirectML or CUDA is present — and it
-    records exactly why in ``considered``, so the UI never has to guess and
-    can never overstate the device. Requesting a GPU backend explicitly
-    falls back with a stated reason, or errors when fallback is disabled.
+    actually caption (CUDA → DirectML → ONNX CPU → PyTorch CPU). A runtime
+    without a caption model pack is skipped and recorded in ``considered``.
+    The returned ``BackendSelection.backend`` is what the pipeline must use
+    for inference — report metadata alone is not enough.
     """
     if requested not in (BACKEND_AUTO, *KNOWN_BACKENDS):
         raise BackendError("UNKNOWN_BACKEND", f"Unknown backend: {requested!r}")

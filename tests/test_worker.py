@@ -469,37 +469,184 @@ def test_get_environment_reports_inference_backends(worker) -> None:
     assert "directml_available" in inference
 
 
-def test_scan_records_inference_metadata(worker, tmp_path: Path) -> None:
+def test_scan_records_inference_metadata(worker, tmp_path: Path, monkeypatch) -> None:
     """A scan report must state which backend actually captioned it."""
+    from PIL import Image
+
+    from filesight.inference.base import BackendDiagnostics, CaptionResult
+    from filesight.inference.registry import BackendSelection
     from helpers import make_file
 
-    make_file(tmp_path / "IMG_1.jpg")
+    # Valid image so the pipeline reaches captioning.
+    Image.new("RGB", (32, 32), (10, 20, 30)).save(tmp_path / "IMG_1.jpg")
 
-    class StubCaptioner:
-        model_name = "stub"
-        device = "cpu"
+    class StubBackend:
+        backend_id = "pytorch-cpu"
 
-        def caption(self, image):
-            return "a black dog"
+        def is_available(self) -> bool:
+            return True
+
+        def can_caption(self) -> bool:
+            return True
+
+        def initialize(self) -> None:
+            return None
+
+        def caption_image(self, image):
+            return CaptionResult(caption="a black dog", backend_id=self.backend_id)
+
+        def caption_images(self, images):
+            return [self.caption_image(i) for i in images]
+
+        def get_diagnostics(self) -> BackendDiagnostics:
+            return BackendDiagnostics(
+                backend_id=self.backend_id,
+                available=True,
+                runtime="pytorch",
+                execution_provider="CPU",
+                device_name="CPU",
+                model_id="stub-model",
+            )
+
+        def close(self) -> None:
+            return None
+
+        def self_test(self) -> BackendDiagnostics:
+            return self.get_diagnostics()
+
+    selection = BackendSelection(
+        backend=StubBackend(),
+        requested_backend="auto",
+        actual_backend="pytorch-cpu",
+        runtime="pytorch",
+        execution_provider="CPU",
+        device_name="CPU",
+        model_id="stub-model",
+        directml_available=False,
+        cuda_available=False,
+    )
+    monkeypatch.setattr(
+        "filesight.inference.resolve_backend",
+        lambda requested="auto", allow_fallback=True: selection,
+    )
 
     instance, events = worker
-    # avoid loading the real model
-    instance._captioner = StubCaptioner()
-    instance._model_loaded = True
-
     run(instance, "scan", {"directory": str(tmp_path), "include_images": True})
     data = events.last()["data"]
     inference = data["report"]["inference"]
-    # Whatever ran, the report must name it and never claim a device that
-    # was only *available* rather than actually used.
-    from filesight.inference.registry import _probe
-
-    actual = inference["actual_backend"]
-    available, captions, _ = _probe(actual)
-    assert available and captions, f"{actual} was reported but cannot caption"
+    assert inference["actual_backend"] == "pytorch-cpu"
     assert inference["requested_backend"] == "auto"
     assert "directml_available" in inference
     assert "cuda_available" in inference
+    assert data["report"]["model"]["provider"] == "pytorch"
+    assert data["report"]["files"][0]["caption"] == "a black dog"
+
+
+def test_scan_captions_via_resolved_backend_not_preloaded_pytorch(
+    worker, tmp_path: Path, monkeypatch
+) -> None:
+    """Regression: report must not claim DirectML while PyTorch captions.
+
+    Before the fix, resolve_backend only filled inference metadata and the
+    pipeline still used worker.get_captioner() (always PyTorch BLIP).
+    """
+    from PIL import Image
+
+    from filesight.inference.base import BackendDiagnostics, CaptionResult
+    from filesight.inference.registry import BackendSelection
+
+    Image.new("RGB", (48, 48), (200, 40, 40)).save(tmp_path / "red.jpg")
+    captioned_by: list[str] = []
+
+    class DirectMlStub:
+        backend_id = "onnx-directml"
+
+        def is_available(self) -> bool:
+            return True
+
+        def can_caption(self) -> bool:
+            return True
+
+        def initialize(self) -> None:
+            return None
+
+        def caption_image(self, image):
+            captioned_by.append(self.backend_id)
+            return CaptionResult(
+                caption="a red square", backend_id=self.backend_id
+            )
+
+        def caption_images(self, images):
+            return [self.caption_image(i) for i in images]
+
+        def get_diagnostics(self) -> BackendDiagnostics:
+            return BackendDiagnostics(
+                backend_id=self.backend_id,
+                available=True,
+                runtime="onnxruntime",
+                execution_provider=(
+                    "DmlExecutionProvider (vision) + CPUExecutionProvider "
+                    "(decoder)"
+                ),
+                device_name="Radeon RX 580 Series",
+                model_id="stub-onnx-blip",
+            )
+
+        def close(self) -> None:
+            return None
+
+        def self_test(self) -> BackendDiagnostics:
+            return self.get_diagnostics()
+
+    selection = BackendSelection(
+        backend=DirectMlStub(),
+        requested_backend="onnx-directml",
+        actual_backend="onnx-directml",
+        runtime="onnxruntime",
+        runtime_version="1.24.4",
+        execution_provider=(
+            "DmlExecutionProvider (vision) + CPUExecutionProvider (decoder)"
+        ),
+        device_name="Radeon RX 580 Series",
+        model_id="stub-onnx-blip",
+        directml_available=True,
+        cuda_available=False,
+    )
+    monkeypatch.setattr(
+        "filesight.inference.resolve_backend",
+        lambda requested="auto", allow_fallback=True: selection,
+    )
+
+    class ShouldNotBeUsed:
+        """Preloaded PyTorch stand-in; using it would reintroduce the bug."""
+
+        model_name = "should-not-use"
+        device = "cpu"
+
+        def caption(self, image):
+            captioned_by.append("pytorch-leak")
+            return "leaked to pytorch"
+
+    instance, events = worker
+    instance._captioner = ShouldNotBeUsed()
+    instance._model_loaded = True
+
+    run(
+        instance,
+        "scan",
+        {
+            "directory": str(tmp_path),
+            "include_images": True,
+            "backend": "onnx-directml",
+        },
+    )
+    assert events.last()["event"] == "completed"
+    data = events.last()["data"]
+    assert data["report"]["inference"]["actual_backend"] == "onnx-directml"
+    assert data["report"]["inference"]["device_name"] == "Radeon RX 580 Series"
+    assert captioned_by == ["onnx-directml"]
+    assert data["report"]["files"][0]["caption"] == "a red square"
+    assert data["report"]["model"]["provider"] == "onnxruntime"
 
 
 def test_make_thumbnail_for_an_image(worker, tmp_path: Path) -> None:

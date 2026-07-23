@@ -1,13 +1,11 @@
-"""ONNX Runtime backends: CPU and DirectML.
+"""ONNX Runtime backends: CPU, DirectML, and CUDA.
 
-State of play (documented in docs/iteration-06.md): the caption model has
-not yet been exported to ONNX, so these backends do not *generate captions*
-— ``caption_images`` raises rather than quietly delegating to PyTorch, so a
-scan's reported backend can never falsely read "DirectML" while the work
-actually happens on CPU. What they *do* provide is a real, verified ONNX
-Runtime path: a genuine session on the requested execution provider, a
-compute self-test on the device, benchmarking and honest diagnostics —
-which is what the RX 580 / DirectML verification rests on.
+When an exported BLIP model pack is present (see docs/onnx-export.md),
+these backends caption for real: vision encoder on the requested provider,
+text decoder on CPU for DirectML (that graph's Reshape is rejected by the
+driver). ``can_caption()`` is True only when both the runtime and the model
+pack exist, so auto-selection and report metadata never claim a GPU that
+cannot run the caption path.
 """
 
 from __future__ import annotations
@@ -120,12 +118,15 @@ _NO_MODEL_MESSAGE = (
     "docs/onnx-export.md."
 )
 
-# Reported when the model pack is present: the decoder cannot run on
-# DirectML, so the two halves sit on different devices, and the report
-# says so rather than claiming the whole model runs on the GPU.
-_HYBRID_NOTE = (
-    "Vision encoder runs on the GPU; the text decoder runs on CPU because "
+# Reported when vision and decoder sit on different devices.
+_HYBRID_DML_NOTE = (
+    "Vision encoder runs on DirectML; the text decoder runs on CPU because "
     "DirectML rejects a Reshape in the decoder graph. See docs/onnx-export.md."
+)
+_CUDA_BOTH_NOTE = (
+    "Vision encoder and text decoder both target CUDAExecutionProvider. "
+    "If the decoder graph is rejected, FileSight falls back to a CPU "
+    "decoder and reports both placements."
 )
 
 
@@ -221,7 +222,7 @@ class OnnxBackend:
                 _SESSION_CACHE[self.provider] = cached
             self._session = cached
 
-    # -- captioning (not yet on ONNX) -------------------------------------
+    # -- captioning -------------------------------------------------------
 
     def _captioner(self):
         """The shared captioner for this provider, created once."""
@@ -310,16 +311,27 @@ class OnnxBackend:
             model_id = "filesight-selftest"
         else:
             model_id = onnx_caption.model_id(model_dir) or str(model_dir)
-            if self.provider != CPU_PROVIDER:
-                notes.append(_HYBRID_NOTE)
+            if self.provider == DML_PROVIDER:
+                notes.append(_HYBRID_DML_NOTE)
+            elif self.provider == CUDA_PROVIDER:
+                notes.append(_CUDA_BOTH_NOTE)
 
         provider = actual_provider or self.provider
-        # Name both placements when they differ, so "DirectML" is never
-        # read as "the whole model ran on the GPU".
+        # Name vision + decoder placements so a hybrid report is never
+        # mistaken for "everything on the GPU".
         if model_dir is not None and self.provider != CPU_PROVIDER:
-            from filesight.inference.onnx_caption import DECODER_PROVIDER
+            from filesight.inference.onnx_caption import decoder_provider_for
 
-            provider = f"{self.provider} (vision) + {DECODER_PROVIDER} (decoder)"
+            # Prefer the live captioner's actual decoder placement when the
+            # model is already warm; otherwise the intended placement.
+            decoder = decoder_provider_for(self.provider)
+            cached = _CAPTIONER_CACHE.get(self.provider)
+            if cached is not None:
+                decoder = getattr(cached, "decoder_provider", decoder) or decoder
+            if decoder == self.provider:
+                provider = self.provider
+            else:
+                provider = f"{self.provider} (vision) + {decoder} (decoder)"
 
         return BackendDiagnostics(
             backend_id=self.backend_id,
@@ -361,11 +373,13 @@ class OnnxDirectMlBackend(OnnxBackend):
 
 
 class OnnxCudaBackend(OnnxBackend):
-    """NVIDIA path. Requires an onnxruntime build with CUDA support.
+    """NVIDIA path. Requires ``onnxruntime-gpu`` (not ``onnxruntime-directml``).
 
-    The stock `onnxruntime-directml` wheel does not carry CUDA, so on this
-    project's machine `is_available()` is False and the backend reports that
-    plainly instead of pretending. See docs/iteration-06.md.
+    Those two wheels cannot be installed together: only one ``onnxruntime``
+    package may own the import. On a GeForce machine install the GPU wheel
+    (see ``docs/nvidia-setup.md`` / ``scripts/setup_nvidia.ps1``). Captioning
+    targets CUDA for both vision and decoder; if the decoder graph fails on
+    CUDA, ``OnnxBlipCaptioner`` falls back to a CPU decoder and reports it.
     """
 
     provider = CUDA_PROVIDER

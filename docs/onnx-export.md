@@ -1,8 +1,8 @@
 # BLIP → ONNX export and the DirectML result
 
-Status: **export works, parity proven, GPU path measured — not yet wired
-into the app.** Captioning in FileSight still runs on PyTorch CPU until
-the backend is implemented (see "Remaining work").
+Status: **export works, parity proven, GPU path wired into the worker and
+CLI.** `cmd_scan` and `filesight scan --backend` route captions through
+the selected ONNX / PyTorch backend (not a preloaded PyTorch-only path).
 
 ## Why a manual export
 
@@ -139,16 +139,25 @@ A non-empty `Target` means the folder is redirected. Install the model on a
 plain, non-redirected path instead and point `FILESIGHT_ONNX_MODEL_DIR` at
 it.
 
-## Remaining work to make the app use the GPU
+## Wiring (done) and remaining product work
 
-1. Implement captioning in `OnnxDirectMlBackend`: load both graphs, run the
-   greedy loop, use the vision-on-DML + decoder-on-CPU split.
-2. Flip `can_caption()` to True for that backend — auto-selection then
-   picks the GPU on its own (already covered by
-   `test_auto_would_pick_gpu_once_it_can_caption`).
-3. Decide where the ~900 MB model lives: it is far too large for the repo.
-   Either ship a model pack with the installer or download on first run.
-4. Session cache + `--preload` must cover both new sessions (the D3D12
-   second-session deadlock rule still applies).
-5. Re-run the quality comparison on real photographs, not just the three
-   test images used here.
+**Done in the app:**
+
+1. `OnnxDirectMlBackend` / `OnnxCpuBackend` caption via `OnnxBlipCaptioner`
+   (vision on the requested provider, decoder on CPU for DirectML).
+2. `can_caption()` is True only when the model pack is present.
+3. `cmd_scan` uses `BackendCaptioner(resolve_backend(...))` so report
+   `actual_backend` matches who really captioned (regression test in
+   `test_scan_captions_via_resolved_backend_not_preloaded_pytorch`).
+4. CLI: `filesight scan --backend onnx-directml` / `--no-allow-fallback`.
+5. `--preload` warms the auto-selected caption backend and does **not**
+   force-load PyTorch when ONNX can caption.
+
+**Still open:**
+
+1. Prefer installing the ~900 MB pack outside OneDrive-synced trees;
+   point `FILESIGHT_ONNX_MODEL_DIR` at a local path if needed.
+2. Profile the non-inference ~10 s/file (thumbnails, naming, I/O) — that
+   is where wall-clock wins live, not the GPU encoder.
+3. Broader quality comparison on real photographs beyond the three
+   parity fixtures.

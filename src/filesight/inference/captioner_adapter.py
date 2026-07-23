@@ -24,7 +24,18 @@ class BackendCaptioner:
         self.device = selection.execution_provider or "cpu"
 
     def load(self) -> None:
+        """Make the backend ready to caption.
+
+        For PyTorch, ``initialize`` already loads BLIP weights. For ONNX,
+        ``initialize`` only builds the tiny self-test session; the caption
+        graphs are built on the first ``_captioner()`` call. Touching that
+        path here keeps the scan's "Loading model" phase honest and avoids
+        paying the 900 MB cold start on the first real file.
+        """
         self._backend.initialize()
+        ensure = getattr(self._backend, "_captioner", None)
+        if callable(ensure):
+            ensure()
 
     def caption(self, image: Image.Image) -> str:
         return self._backend.caption_image(image).caption

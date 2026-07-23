@@ -1,6 +1,6 @@
 # FileSight — прогрес
 
-Останнє оновлення: 2026-07-22 (після ітерації 6, сесія «inference-ядро + DirectML»).
+Останнє оновлення: 2026-07-23 (wiring: scan реально captionить через resolve_backend).
 
 ## Поточний стан
 
@@ -30,11 +30,10 @@ DirectML на RX 580**; пакувальні критерії свідомо в�
 - Benchmark для `auto` більше не зашитий на DirectML — бере найкращий
   наявний прискорювач.
 
-**Стан і далі чесний:** `can_caption()` у всіх ONNX-бекендів повертає
-`False`, бо caption-моделі в ONNX немає. Тому `auto` на цій машині
-свідомо зупиняється на `pytorch-cpu` — і пише чому. Коли з'явиться
-ONNX-експорт, перемикач один: `can_caption() → True`, і автовибір сам
-почне брати GPU (є тест, який це доводить через monkeypatch).
+**Оновлено:** ONNX pack у `models/blip-onnx` + wiring у `cmd_scan` /
+CLI. `can_caption()` True коли pack знайдено; `auto` на RX 580 →
+`onnx-directml`. Раніше звіт міг писати DirectML, а пайплайн ішов через
+preloaded PyTorch — виправлено (`BackendCaptioner(selection)`).
 
 **NVIDIA не перевірена на залізі** — тут RX 580. Код і автовизначення
 написані, `is_available()` чесно повертає False, `test_backend` каже
@@ -62,10 +61,12 @@ ONNX-експорт, перемикач один: `can_caption() → True`, і �
 
 ## Фактична модель і backend
 
-- Captioning-модель: **`Salesforce/blip-image-captioning-base`** (PyTorch CPU),
-  **без змін**. ONNX-експорт відкладено (причина нижче).
+- Captioning: ONNX BLIP pack (vision на DirectML / CUDA / CPU, decoder на
+  CPU для DirectML) або fallback **PyTorch** `Salesforce/blip-image-captioning-base`.
 - `onnxruntime-directml==1.24.4` (Python 3.14), провайдер `DmlExecutionProvider`.
 - Session: `ORT_ENABLE_ALL`, `ORT_SEQUENTIAL`, `enable_mem_pattern=False` для DML.
+- `cmd_scan` / CLI `scan --backend` використовують той самий backend, що
+  потрапляє в `report.inference.actual_backend`.
 
 ## Версії (зафіксовано)
 
@@ -78,7 +79,7 @@ Cargo синхронізовано).
 
 | Набір | Результат |
 | --- | --- |
-| Python (pytest) | **412 passed, 2 skipped** (skip'и = тести для «DirectML недоступний» і «CUDA доступна» — жоден не є прихованим провалом) |
+| Python (pytest) | **424 passed, 6 skipped** (skip'и = умовні GPU/CUDA/model-pack тести — жоден не є прихованим провалом) |
 | React (vitest) | **85 passed** |
 | Rust (cargo test) | **27 passed** |
 
@@ -97,10 +98,10 @@ Rust-тест на persist backend-настройок.
 | onnx-cpu | CPUExecutionProvider | 68 ms | 0.035 ms | self-test 32×32 |
 | onnx-directml | DmlExecutionProvider | 283 ms | 0.417 ms | self-test 32×32 |
 
-Чесно: pytorch-cpu — єдиний рядок із реальним captioning (~7 с/зображення).
-ONNX-рядки міряють крихітну self-test модель (не captioning). На ній
-DirectML повільніший за CPU (dispatch overhead) — очікувано; реальна
-captioning-модель була б на користь GPU, але вона ще не в ONNX.
+Примітка: таблиця вище — self-test 32×32 vs повний BLIP на PyTorch; це
+різні моделі. Реальний ONNX BLIP caption (hybrid DML vision + CPU decoder)
+виміряно в `docs/onnx-export.md` (~1.7–2.1 s/image pure inference; full
+scan ~12 s/file через non-inference overhead).
 
 ## Quality comparison
 

@@ -35,3 +35,6 @@ desktop/src-tauri/app-icon.png
 # OS
 Thumbs.db
 .DS_Store
+
+# Local ONNX model pack (junction or copy); never committed.
+models/

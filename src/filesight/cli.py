@@ -202,6 +202,19 @@ def scan(
     transliterate: Optional[bool] = typer.Option(
         None, "--transliterate/--no-transliterate", help="Latinize Ukrainian output."
     ),
+    backend: str = typer.Option(
+        "auto",
+        "--backend",
+        help=(
+            "Inference backend: auto, onnx-cuda, onnx-directml, "
+            "onnx-cpu, or pytorch-cpu."
+        ),
+    ),
+    allow_fallback: bool = typer.Option(
+        True,
+        "--allow-fallback/--no-allow-fallback",
+        help="If the chosen backend cannot caption, fall back to the next one.",
+    ),
 ) -> None:
     """Scan a folder, caption every supported image (and optionally video).
 
@@ -299,11 +312,26 @@ def scan(
             typer.echo(f"ffmpeg: {tools.ffmpeg}")
             typer.echo(f"ffprobe: {tools.ffprobe}")
 
-    from filesight.captioner import DEFAULT_MODEL, BlipCaptioner
+    from filesight.inference import resolve_backend
+    from filesight.inference.base import BackendError
+    from filesight.inference.captioner_adapter import BackendCaptioner
+    from filesight.models import InferenceInfo
 
-    captioner = BlipCaptioner(DEFAULT_MODEL)
+    try:
+        selection = resolve_backend(
+            requested=backend, allow_fallback=allow_fallback
+        )
+    except BackendError as exc:
+        _fail(str(exc), EXIT_USAGE)
+
+    captioner = BackendCaptioner(selection)
+    typer.echo(f"Backend: {selection.actual_backend}")
+    if selection.fallback_occurred:
+        typer.echo(f"Fallback: {selection.fallback_reason}")
     typer.echo(f"Model: {captioner.model_name}")
-    typer.echo(f"Device: {captioner.device.upper()}")
+    typer.echo(f"Device: {captioner.device}")
+    if selection.device_name:
+        typer.echo(f"Adapter: {selection.device_name}")
     typer.echo("")
 
     started = time.perf_counter()
@@ -312,13 +340,13 @@ def scan(
 
     if files:
         try:
-            typer.echo("Loading model (first run downloads it, please wait)...")
+            typer.echo("Loading model (first run may download or open ONNX weights)...")
             captioner.load()
             typer.echo("")
         except KeyboardInterrupt:
             _fail("Interrupted while loading the model.", EXIT_INTERRUPTED)
         except Exception as exc:
-            _fail(f"Could not load model '{captioner.model_name}': {exc}")
+            _fail(f"Could not load backend '{selection.actual_backend}': {exc}")
 
         from filesight.pipeline import VideoContext, process_media_files
         from filesight.temp_files import FrameWorkspace
@@ -362,11 +390,26 @@ def scan(
 
     from filesight.report import build_report, write_report
 
+    inference = InferenceInfo(
+        requested_backend=selection.requested_backend,
+        actual_backend=selection.actual_backend,
+        runtime=selection.runtime,
+        runtime_version=selection.runtime_version,
+        execution_provider=selection.execution_provider,
+        device_name=selection.device_name,
+        model_id=selection.model_id,
+        fallback_occurred=selection.fallback_occurred,
+        fallback_reason=selection.fallback_reason,
+        directml_available=selection.directml_available,
+        cuda_available=selection.cuda_available,
+    )
     report = build_report(
         source_directory=path,
         recursive=recursive,
         model=ModelInfo(
-            provider="huggingface", name=captioner.model_name, device=captioner.device
+            provider=selection.runtime,
+            name=captioner.model_name,
+            device=captioner.device,
         ),
         entries=entries,
         discovered=len(files),
@@ -380,6 +423,7 @@ def scan(
             transliterate=active_profile.transliterate,
             config_version=loaded_config.config_version,
         ),
+        inference=inference,
     )
     try:
         write_report(report, report_path)

@@ -95,6 +95,7 @@ class Worker:
     def __init__(self, emitter: Optional[Emitter] = None) -> None:
         self.emitter = emitter or Emitter()
         self._captioner = None
+        self._preloaded_backend_id: Optional[str] = None
         self._model_loaded = False
         self._onnx_warmed = False
         self._cancel_flags: dict[str, threading.Event] = {}
@@ -116,9 +117,38 @@ class Worker:
         session deadlocks inside the Windows loader lock (the reader thread
         is blocked in a stdin read). Doing it up front avoids that, which is
         why the desktop app launches the worker with --preload.
+
+        Only the auto-selected caption backend is loaded. Loading PyTorch
+        unconditionally used to pin the CPU model in memory even when the
+        scan was about to run on DirectML.
         """
-        self.get_captioner(None)
         self.warm_onnx_runtime()
+        try:
+            from filesight.inference import resolve_backend
+            from filesight.inference.base import BACKEND_PYTORCH_CPU
+            from filesight.inference.captioner_adapter import BackendCaptioner
+
+            selection = resolve_backend("auto")
+            log(f"preload: auto caption backend is {selection.actual_backend}")
+            if selection.actual_backend == BACKEND_PYTORCH_CPU:
+                # warm_onnx already covered the ONNX path (or there is none);
+                # fall through to the historical PyTorch load.
+                self.get_captioner(None)
+            else:
+                # ONNX caption sessions were created in warm_onnx_runtime when
+                # the model pack is present; mark ready without also loading
+                # a second (PyTorch) copy of BLIP.
+                captioner = BackendCaptioner(selection)
+                captioner.load()
+                self._captioner = captioner
+                self._model_loaded = True
+                self._preloaded_backend_id = selection.actual_backend
+        except Exception as exc:  # pragma: no cover - defensive
+            log(f"preload caption backend failed: {exc}; trying PyTorch")
+            try:
+                self.get_captioner(None)
+            except Exception as inner:  # pragma: no cover
+                log(f"preload PyTorch also failed: {inner}")
         # Any DLL loaded on demand while the reader thread is blocked on
         # stdin can deadlock the Windows loader, so touch the ones the
         # benchmark command needs (psapi for peak RAM) up front too.
@@ -130,29 +160,47 @@ class Worker:
             pass
 
     def warm_onnx_runtime(self) -> None:
-        """Load the ONNX Runtime + DirectML native DLLs, discarding the session.
+        """Load ONNX Runtime native DLLs (CUDA / DirectML / CPU) before serve.
 
-        Best effort: a machine without DirectML (or without onnxruntime)
-        simply skips it. Failure here never blocks startup.
+        Best effort: a machine without onnxruntime simply skips it. Failure
+        here never blocks startup. Preference order matches auto-selection
+        so a GeForce box warms CUDA, not DirectML-only paths.
         """
         if self._onnx_warmed:
             return
         self._onnx_warmed = True
         try:
+            from filesight.inference.base import (
+                BACKEND_ONNX_CPU,
+                BACKEND_ONNX_CUDA,
+                BACKEND_ONNX_DIRECTML,
+            )
             from filesight.inference.onnx_caption import find_model_dir
-            from filesight.inference.registry import _directml_available, make_backend
+            from filesight.inference.registry import (
+                _cuda_available,
+                _directml_available,
+                make_backend,
+            )
 
-            # Say plainly what was found. When a scan unexpectedly runs on
-            # the CPU, this line is the difference between diagnosing it and
-            # guessing at it.
             log(
-                f"onnx warm-up: directml={_directml_available()} "
+                f"onnx warm-up: cuda={_cuda_available()} "
+                f"directml={_directml_available()} "
                 f"model_pack={find_model_dir()}"
             )
-            if _directml_available():
-                backend = make_backend("onnx-directml")
-            else:
-                backend = make_backend("onnx-cpu")
+            backend = None
+            for backend_id in (
+                BACKEND_ONNX_CUDA,
+                BACKEND_ONNX_DIRECTML,
+                BACKEND_ONNX_CPU,
+            ):
+                candidate = make_backend(backend_id)
+                if candidate.is_available():
+                    backend = candidate
+                    break
+            if backend is None:
+                log("onnx warm-up skipped: no ONNX provider available")
+                return
+
             backend.self_test()  # creates + runs a real session, then...
 
             # If a caption model pack is installed, build its sessions now
@@ -170,9 +218,13 @@ class Worker:
 
                 log(
                     f"{backend.backend_id} will not caption "
-                    f"(available={backend.is_available()}); scans use the CPU"
+                    f"(available={backend.is_available()}); "
+                    f"scans fall back per resolve_backend"
                 )
-                log(f"model pack search: {describe_model_search()}")
+                # One line per finding: the log truncates long lines, which
+                # hid the very entry we needed last time.
+                for part in describe_model_search().split("; "):
+                    log(f"model pack: {part}")
             backend.close()
         except Exception as exc:  # pragma: no cover - defensive
             log(f"onnx warm-up skipped: {exc}")
@@ -601,11 +653,13 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
         except FFmpegNotFound as exc:
             raise WorkerError("FFMPEG_NOT_FOUND", str(exc)) from exc
 
-    # Resolve which inference backend will caption this scan (metadata +
-    # honest reporting). Captioning currently runs on PyTorch CPU; the
-    # selection records whether DirectML is available and any fallback.
+    # Resolve the backend that will *actually* caption this scan, then
+    # route the pipeline through it. Reporting and execution must use the
+    # same object — previously resolve_backend only filled report metadata
+    # while process_media_files still ran on the preloaded PyTorch BLIP.
     from filesight.inference import resolve_backend
     from filesight.inference.base import BackendError
+    from filesight.inference.captioner_adapter import BackendCaptioner
 
     emit(request_id, "backend_detection_started", {})
     try:
@@ -616,8 +670,24 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
     except BackendError as exc:
         raise WorkerError(exc.code, str(exc)) from exc
     emit(request_id, "backend_detected", selection.report_dict())
+    log(
+        f"scan will caption with {selection.actual_backend} "
+        f"(requested={selection.requested_backend}, "
+        f"fallback={selection.fallback_occurred})"
+    )
 
-    captioner = worker.get_captioner(request_id)
+    emit(request_id, "phase", {"phase": "Loading model"})
+    captioner = BackendCaptioner(selection)
+    try:
+        captioner.load()
+    except Exception as exc:
+        raise WorkerError(
+            "MODEL_LOAD_FAILED",
+            f"Unable to load inference backend "
+            f"{selection.actual_backend!r}: {exc}",
+            recoverable=False,
+        ) from exc
+    worker._model_loaded = True
     emit(request_id, "phase", {"phase": "Analyzing"})
 
     started_at = time.perf_counter()
@@ -712,8 +782,11 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
     )
     report = build_report(
         source_directory=directory, recursive=recursive,
-        model=ModelInfo(provider="huggingface", name=captioner.model_name,
-                        device=captioner.device),
+        model=ModelInfo(
+            provider=selection.runtime,
+            name=captioner.model_name,
+            device=captioner.device,
+        ),
         entries=entries, discovered=len(files), duration_seconds=duration,
         videos_enabled=include_videos,
         naming_configuration=NamingConfiguration(

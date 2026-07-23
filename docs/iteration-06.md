@@ -33,8 +33,9 @@
 src/filesight/inference/
 ├─ base.py             InferenceBackend, CaptionResult, BackendDiagnostics,
 │                      detect_gpu_name (Win32 EnumDisplayDevices)
-├─ pytorch_cpu.py      PyTorchCpuBackend — BLIP (поточний captioning)
-├─ onnx_backends.py    OnnxCpuBackend, OnnxDirectMlBackend + session cache
+├─ pytorch_cpu.py      PyTorchCpuBackend — BLIP (fallback / baseline)
+├─ onnx_backends.py    OnnxCpu/DirectML/CUDA + session + caption cache
+├─ onnx_caption.py     OnnxBlipCaptioner (hybrid vision GPU / decoder CPU)
 ├─ registry.py         make_backend, resolve_backend, test_backend,
 │                      benchmark_backend, fallback policy
 └─ captioner_adapter.py  BackendCaptioner → інтерфейс пайплайна
@@ -45,29 +46,28 @@ Backend IDs — стабільні й однозначні: `auto`, `onnx-direct
 
 ## Чесність backend (ключове)
 
-Поточний стан **прямо повідомляється**, а не маскується:
+`resolve_backend` повертає об'єкт, яким **реально** captionить пайплайн
+(`BackendCaptioner`), а не лише метадані для звіту. Раніше `cmd_scan`
+записував `actual_backend` з selection, але передавав у
+`process_media_files` preloaded PyTorch — звіт брехав. Це виправлено.
 
-- Captioning-модель ще **не експортована в ONNX**, тому captioning
-  виконується на **PyTorch CPU**. `auto` резолвиться в `pytorch-cpu` для
-  captioning і записує `directml_available: true` та причину.
-- ONNX-backend'и **не captioning'ять**: `caption_images` кидає помилку,
-  а не тихо делегує на PyTorch. Тому у звіті ніколи не з'явиться хибний
-  `actual_backend: onnx-directml`, поки реального ONNX-captioning немає.
-- DirectML перевіряється **окремо** через `test_backend`/`benchmark`, які
-  реально запускають ONNX-модель на RX 580.
+- Якщо pack `models/blip-onnx` (або `FILESIGHT_ONNX_MODEL_DIR`) на місці
+  і DirectML доступний, `auto` → `onnx-directml` і captioning іде туди.
+- Без pack `can_caption()` для ONNX = False; auto падає на `pytorch-cpu`
+  із причиною в `considered` / `fallback_reason`.
+- Hybrid: vision encoder на DirectML, decoder на CPU (Reshape у decoder
+  графі відхиляє драйвер) — це відображається в `execution_provider`.
 
-Реальний звіт (test-images):
+Приклад звіту з pack + RX 580:
 
 ```json
 "inference": {
   "requested_backend": "auto",
-  "actual_backend": "pytorch-cpu",
-  "runtime": "pytorch",
-  "execution_provider": "CPU",
-  "device_name": "CPU",
-  "model_id": "Salesforce/blip-image-captioning-base",
+  "actual_backend": "onnx-directml",
+  "runtime": "onnxruntime",
+  "execution_provider": "DmlExecutionProvider (vision) + CPUExecutionProvider (decoder)",
+  "device_name": "Radeon RX 580 Series",
   "fallback_occurred": false,
-  "fallback_reason": "The caption model is not exported to ONNX yet…",
   "directml_available": true
 }
 ```
@@ -109,11 +109,10 @@ Self-test: вбудована крихітна ONNX-модель (32×32 MatMul+
 
 ## Fallback policy
 
-Setting `allow_fallback` (default `true`). Порядок при увімкненому:
-`DirectML → ONNX CPU → PyTorch CPU`. Наразі, оскільки captioning лише на
-PyTorch, запит ONNX-backend'а з fallback→`pytorch-cpu` (позначено
-`fallback_occurred`); з вимкненим fallback → чітка помилка
-`BACKEND_CANNOT_CAPTION`, без тихого CPU-аналізу.
+Setting `allow_fallback` (default `true`). Порядок auto:
+`CUDA → DirectML → ONNX CPU → PyTorch CPU`. Якщо вибраний backend не може
+captionити (немає pack / немає provider), з fallback → наступний
+придатний; без fallback → `BACKEND_CANNOT_CAPTION`.
 
 ## Зміни JSON-схеми
 

@@ -1,9 +1,9 @@
-"""PyTorch CPU backend — the historical, quality-reference captioner.
+"""PyTorch CPU backend — quality-reference captioner and universal fallback.
 
-Wraps the BLIP model that FileSight has used since iteration 1. It stays
-the production captioning backend until an ONNX caption model is exported
-and quality-verified; the ONNX backends currently provide the DirectML
-runtime path (self-test, benchmark, diagnostics), not caption generation.
+Wraps the BLIP model that FileSight has used since iteration 1. When an
+ONNX model pack is installed, auto-selection prefers CUDA / DirectML /
+ONNX CPU; this backend remains the baseline and the fallback when no
+ONNX path can caption.
 """
 
 from __future__ import annotations
@@ -43,7 +43,8 @@ class PyTorchCpuBackend:
         return True
 
     def can_caption(self) -> bool:
-        # The only backend with a real caption model today.
+        # Always caption-capable when torch/transformers import cleanly;
+        # the HF model is downloaded on first initialize if needed.
         return self.is_available()
 
     def initialize(self) -> None:
