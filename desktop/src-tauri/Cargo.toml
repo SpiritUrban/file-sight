@@ -1,6 +1,6 @@
 [package]
 name = "filesight-desktop"
-version = "0.6.2"
+version = "0.6.3"
 description = "FileSight desktop UI"
 authors = ["Vitaliy Dyachuk <https://spiriturban.github.io/>"]
 homepage = "https://spiriturban.github.io/file-sight/"

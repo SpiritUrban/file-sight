@@ -217,6 +217,17 @@ jobs:
         shell: bash
         run: rm -rf desktop/src-tauri/target/*/bundle desktop/src-tauri/target/bundle
 
+      # Rule 27: `embed-resource` recompiles the Windows resource only when
+      # the TEXT of resource.rc changes. Replacing the contents of icon.ico
+      # is invisible to it, and `target/` comes back from the cache, so a new
+      # icon can be silently discarded and the release ships the old one --
+      # with nothing anywhere reporting a problem. Deleting the build output
+      # forces build.rs to regenerate it; build.rs costs seconds.
+      - name: Force the Windows icon resource to be rebuilt
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        run: rm -rf desktop/src-tauri/target/*/build/filesight-desktop-*
+
       # Rule 20: tauri-action reports an exit code and nothing else. Run the
       # same build ourselves first so a failure has a readable cause.
       #

@@ -1,7 +1,7 @@
 {
   "name": "file-sight",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "Repo-root shortcuts. The desktop app itself lives in desktop/.",
   "license": "MIT",
   "author": "Vitaliy Dyachuk (https://spiriturban.github.io/)",
