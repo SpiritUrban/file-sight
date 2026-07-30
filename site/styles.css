@@ -56,6 +56,41 @@ h3 {
   margin: 0 0 0.5rem;
 }
 
+/* ---------- language switch ---------- */
+
+.langbar {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.langbar__button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.langbar__button:hover {
+  color: var(--text);
+}
+
+/* The active language is marked by more than colour, so it is still obvious
+   in greyscale and to anyone who cannot distinguish the two shades. */
+.langbar__button--active {
+  border-color: var(--border);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* ---------- hero ---------- */
 
 .hero {
@@ -205,6 +240,33 @@ section {
   font-size: 0.78rem;
   margin: 0;
   word-break: break-all;
+}
+
+/* What the package needs, stated on the card itself. Colour is a hint, never
+   the message: both badges read correctly in greyscale. */
+.card__badge {
+  margin: 0;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.card__badge--complete {
+  border-color: rgba(16, 150, 100, 0.45);
+  color: #0b7a55;
+}
+
+.card__badge--needs {
+  color: var(--text-muted);
+}
+
+@media (prefers-color-scheme: dark) {
+  .card__badge--complete {
+    color: #4ad4a0;
+  }
 }
 
 .card--unavailable {

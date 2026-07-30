@@ -25,9 +25,13 @@
 
     <!-- Open Graph and Twitter Card: every reshare of this link carries the
          product name, the description and the author's name, with no further
-         effort. Absolute URLs are required here; relative ones are ignored. -->
+         effort. Absolute URLs are required here; relative ones are ignored.
+         Deliberately English only: a share preview is generated once by the
+         crawler and cannot follow a per-visitor language choice. -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="FileSight" />
+    <meta property="og:locale" content="en" />
+    <meta property="og:locale:alternate" content="uk" />
     <meta property="og:title" content="FileSight — readable file names, generated locally" />
     <meta
       property="og:description"
@@ -53,10 +57,22 @@
   </head>
 
   <body>
+    <!-- The language switch. English is what the markup ships with, so the
+         page is readable before any script runs; the script then applies the
+         remembered or detected choice. -->
+    <nav class="langbar" aria-label="Language" data-i18n-aria="lang.label">
+      <button type="button" class="langbar__button" data-lang="en" aria-pressed="true">
+        English
+      </button>
+      <button type="button" class="langbar__button" data-lang="uk" aria-pressed="false">
+        Українська
+      </button>
+    </nav>
+
     <header class="hero">
       <img class="hero__icon" src="./favicon.png" alt="" width="72" height="72" />
       <h1>FileSight</h1>
-      <p class="hero__tagline">
+      <p class="hero__tagline" data-i18n="hero.tagline">
         Your photos and clips get names you can read — and it all happens on
         your own machine. On Windows, the installer contains everything.
       </p>
@@ -65,125 +81,171 @@
       </p>
 
       <div class="hero__actions">
-        <a class="button button--primary" href="#downloads">Download</a>
+        <a class="button button--primary" href="#downloads" data-i18n="hero.download"
+          >Download</a
+        >
         <a
           class="button"
           href="https://github.com/SpiritUrban/file-sight"
           rel="noopener"
+          data-i18n="hero.source"
           >Source on GitHub</a
         >
       </div>
     </header>
 
     <main>
-      <section class="features" aria-label="What it does">
+      <section class="features" aria-label="What it does" data-i18n-aria="features.label">
         <article>
-          <h2>Local, not uploaded</h2>
-          <p>
+          <h2 data-i18n="feature.local.title">Local, not uploaded</h2>
+          <p data-i18n="feature.local.body">
             A vision model runs on your machine and describes each file. Nothing
             leaves the computer, so private folders stay private.
           </p>
         </article>
         <article>
-          <h2>Nothing renames itself</h2>
-          <p>
+          <h2 data-i18n="feature.confirm.title">Nothing renames itself</h2>
+          <p data-i18n="feature.confirm.body">
             You see the suggested names, edit any of them, validate, and dry-run
             first. Files change only after you confirm the plan.
           </p>
         </article>
         <article>
-          <h2>Every rename is reversible</h2>
-          <p>
+          <h2 data-i18n="feature.undo.title">Every rename is reversible</h2>
+          <p data-i18n="feature.undo.body">
             Each operation is journalled, so one click undoes the last batch —
             including swaps, cycles and case-only changes.
           </p>
         </article>
         <article>
-          <h2>Images and short videos</h2>
-          <p>
+          <h2 data-i18n="feature.media.title">Images and short videos</h2>
+          <p data-i18n="feature.media.body">
             JPEG, PNG and WebP, plus MP4, MOV, MKV, WebM and AVI clips: frames
             are sampled and the clearest ones describe the file.
+          </p>
+        </article>
+        <article>
+          <h2 data-i18n="feature.setup.title">No setup on Windows</h2>
+          <p data-i18n="feature.setup.body">
+            The analysis engine ships inside the installer. No Python, no PATH,
+            no commands — and FFmpeg for video is one button in the app.
+          </p>
+        </article>
+        <article>
+          <h2 data-i18n="feature.updates.title">Keeps itself current</h2>
+          <p data-i18n="feature.updates.body">
+            An installed copy notices a new release, shows a banner and installs
+            it. Every update is signed, and only signed ones are accepted.
           </p>
         </article>
       </section>
 
       <section id="downloads" class="downloads">
-        <h2>Downloads</h2>
+        <h2 data-i18n="downloads.title">Downloads</h2>
         <p class="downloads__note" id="release-note"></p>
 
         <!-- Cards are matched to release assets by platform + architecture +
              file suffix. Platform and architecture alone are not a unique key:
-             Windows ships an .exe and an .msi, Linux an .AppImage and a .deb. -->
+             Windows ships an .exe and an .msi, Linux an .AppImage and a .deb.
+
+             What each package needs is stated ON the card. Putting it only in
+             a section further down means somebody picks macOS, downloads
+             240 MB, and finds out about Python afterwards. -->
         <div class="cards" id="cards">
           <article class="card" data-platform="windows" data-arch="x64" data-ext=".exe">
             <h3>Windows</h3>
-            <p class="card__kind">Installer (.exe)</p>
+            <p class="card__kind" data-i18n="card.win.exe">
+              Installer (.exe) · recommended
+            </p>
+            <p class="card__badge card__badge--complete" data-i18n="badge.complete">
+              Everything included
+            </p>
             <a class="button button--primary" data-download href="#">Checking…</a>
             <p class="card__meta" data-meta></p>
           </article>
 
           <article class="card" data-platform="windows" data-arch="x64" data-ext=".msi">
             <h3>Windows</h3>
-            <p class="card__kind">MSI package</p>
+            <p class="card__kind" data-i18n="card.win.msi">
+              MSI package · for deployment
+            </p>
+            <p class="card__badge card__badge--complete" data-i18n="badge.complete">
+              Everything included
+            </p>
             <a class="button" data-download href="#">Checking…</a>
             <p class="card__meta" data-meta></p>
           </article>
 
           <article class="card" data-platform="macos" data-arch="arm64" data-ext=".dmg">
             <h3>macOS</h3>
-            <p class="card__kind">Apple Silicon (.dmg)</p>
+            <p class="card__kind" data-i18n="card.mac.arm">Apple Silicon (.dmg)</p>
+            <p class="card__badge card__badge--needs" data-i18n="badge.needs">
+              Needs Python 3.11+
+            </p>
             <a class="button button--primary" data-download href="#">Checking…</a>
             <p class="card__meta" data-meta></p>
           </article>
 
           <article class="card" data-platform="macos" data-arch="x64" data-ext=".dmg">
             <h3>macOS</h3>
-            <p class="card__kind">Intel (.dmg)</p>
+            <p class="card__kind" data-i18n="card.mac.intel">Intel (.dmg)</p>
+            <p class="card__badge card__badge--needs" data-i18n="badge.needs">
+              Needs Python 3.11+
+            </p>
             <a class="button" data-download href="#">Checking…</a>
             <p class="card__meta" data-meta></p>
           </article>
 
           <article class="card" data-platform="linux" data-arch="x64" data-ext=".appimage">
             <h3>Linux</h3>
-            <p class="card__kind">AppImage</p>
+            <p class="card__kind" data-i18n="card.linux.appimage">AppImage</p>
+            <p class="card__badge card__badge--needs" data-i18n="badge.needs">
+              Needs Python 3.11+
+            </p>
             <a class="button button--primary" data-download href="#">Checking…</a>
             <p class="card__meta" data-meta></p>
           </article>
 
           <article class="card" data-platform="linux" data-arch="x64" data-ext=".deb">
             <h3>Linux</h3>
-            <p class="card__kind">Debian / Ubuntu (.deb)</p>
+            <p class="card__kind" data-i18n="card.linux.deb">Debian / Ubuntu (.deb)</p>
+            <p class="card__badge card__badge--needs" data-i18n="badge.needs">
+              Needs Python 3.11+
+            </p>
             <a class="button" data-download href="#">Checking…</a>
             <p class="card__meta" data-meta></p>
           </article>
         </div>
 
         <p class="downloads__all">
-          <a href="https://github.com/SpiritUrban/file-sight/releases" rel="noopener"
+          <a
+            href="https://github.com/SpiritUrban/file-sight/releases"
+            rel="noopener"
+            data-i18n="downloads.all"
             >All releases and checksums on GitHub</a
           >
         </p>
       </section>
 
       <section class="requirements">
-        <h2>Install and run — nothing else to set up</h2>
-        <p>
+        <h2 data-i18n="requirements.title">Install and run — nothing else to set up</h2>
+        <p data-i18n-html="requirements.windows">
           <strong>On Windows the installer is self-contained.</strong> The
           analysis engine ships inside it, so there is no Python to install, no
           PATH to edit and no commands to run. Download, install, choose a
           folder. The first analysis downloads the vision model once (about
           1&nbsp;GB) and caches it; everything after that works offline.
         </p>
-        <p>
+        <p data-i18n="requirements.ffmpeg">
           Video support needs FFmpeg, and that is one click too: the app offers
           to fetch it into its own folder, without touching anything else on the
           system.
         </p>
-        <p>
+        <p data-i18n="requirements.updates">
           Updates are built in — an installed copy notices a new release and
           offers to install it.
         </p>
-        <p class="requirements__caveat">
+        <p class="requirements__caveat" data-i18n-html="requirements.caveat">
           <strong>macOS and Linux builds are not self-contained yet.</strong>
           They still need <strong>Python 3.11+</strong> with the FileSight core
           installed — the
@@ -198,7 +260,7 @@
     </main>
 
     <footer class="footer">
-      <p>
+      <p data-i18n-html="footer.author">
         Built by
         <a href="https://spiriturban.github.io/" rel="author noopener"
           >Vitaliy Dyachuk</a
@@ -206,7 +268,7 @@
         — more projects and services on the
         <a href="https://spiriturban.github.io/" rel="noopener">personal hub</a>.
       </p>
-      <p class="footer__legal">
+      <p class="footer__legal" data-i18n-html="footer.legal">
         MIT licensed.
         <a href="https://github.com/SpiritUrban/file-sight" rel="noopener">Source</a> ·
         <a href="https://github.com/SpiritUrban/file-sight/issues" rel="noopener"
@@ -215,6 +277,7 @@
       </p>
     </footer>
 
+    <script src="./i18n.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

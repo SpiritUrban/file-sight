@@ -6,12 +6,23 @@
  *
  * If the manifest is missing or has no assets, every card falls back to the
  * releases page. A guessed file name would be a 404, which is worse than an
- * extra click. */
+ * extra click.
+ *
+ * Every string the script produces goes through FileSightI18n, and the last
+ * manifest is kept so a language change can repaint without refetching. */
 
 (function () {
   "use strict";
 
   var RELEASES_URL = "https://github.com/SpiritUrban/file-sight/releases";
+  var i18n = window.FileSightI18n;
+
+  /** The last manifest (or the failure that replaced it). */
+  var state = { manifest: null, error: null };
+
+  function t(key, values) {
+    return i18n ? i18n.t(key, values) : key;
+  }
 
   function humanSize(bytes) {
     if (!bytes || bytes < 1024) return "";
@@ -19,16 +30,31 @@
     return mb >= 1024 ? (mb / 1024).toFixed(1) + " GB" : Math.round(mb) + " MB";
   }
 
-  function fallback(message) {
-    document.querySelectorAll("[data-download]").forEach(function (link) {
-      link.textContent = "See all releases";
-      link.href = RELEASES_URL;
-    });
-    document.querySelectorAll(".card").forEach(function (card) {
-      card.classList.add("card--unavailable");
-    });
+  function formatDate(iso) {
+    if (!iso) return null;
+    var when = new Date(iso);
+    if (isNaN(when.getTime())) return null;
+    try {
+      // An explicit locale, not the browser's: a visitor reading the
+      // Ukrainian page got "30 июля 2026 г." because the OS locale decided.
+      return when.toLocaleDateString(i18n ? i18n.locale() : "en-GB", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      });
+    } catch (error) {
+      return when.toISOString().slice(0, 10);
+    }
+  }
+
+  function setNote(text) {
     var note = document.getElementById("release-note");
-    if (note) note.textContent = message;
+    if (note) note.textContent = text;
+  }
+
+  function setVersionLine(text) {
+    var line = document.getElementById("version-line");
+    if (line) line.textContent = text;
   }
 
   /* A card matches an asset on all three of platform, architecture and file
@@ -43,68 +69,85 @@
     );
   }
 
-  function render(manifest) {
-    var versionLine = document.getElementById("version-line");
-    var note = document.getElementById("release-note");
-
-    if (versionLine) {
-      if (manifest.hasRelease) {
-        var when = manifest.publishedAt
-          ? new Date(manifest.publishedAt).toLocaleDateString(undefined, {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })
-          : null;
-        versionLine.textContent =
-          "Version " + manifest.version + (when ? " · released " + when : "");
-      } else {
-        versionLine.textContent =
-          "Version " + manifest.version + " · not published yet";
-      }
+  function renderFallback(noteKey, values) {
+    var links = document.querySelectorAll("[data-download]");
+    for (var i = 0; i < links.length; i += 1) {
+      links[i].textContent = t("button.all");
+      links[i].href = RELEASES_URL;
     }
+    var cards = document.querySelectorAll(".card");
+    for (var j = 0; j < cards.length; j += 1) {
+      cards[j].classList.add("card--unavailable");
+      var meta = cards[j].querySelector("[data-meta]");
+      if (meta) meta.textContent = "";
+    }
+    setNote(t(noteKey, values));
+  }
 
-    if (!manifest.assets || manifest.assets.length === 0) {
-      fallback(
-        manifest.hasRelease
-          ? "This release has no installers attached yet. The GitHub releases page has everything that is published."
-          : "No release is published yet. Watch the repository to hear about the first one.",
-      );
+  function render() {
+    if (state.error) {
+      setVersionLine("");
+      renderFallback("note.failed", { error: state.error });
       return;
     }
 
-    if (note) {
-      note.textContent =
-        "Pick the package for your system. Installers are built by GitHub Actions from the tagged source.";
+    var manifest = state.manifest;
+    if (!manifest) {
+      setVersionLine(t("version.loading"));
+      return;
     }
 
-    document.querySelectorAll(".card").forEach(function (card) {
+    var date = formatDate(manifest.publishedAt);
+    setVersionLine(
+      manifest.hasRelease && date
+        ? t("version.released", { version: manifest.version, date: date })
+        : t("version.unpublished", { version: manifest.version }),
+    );
+
+    if (!manifest.assets || manifest.assets.length === 0) {
+      renderFallback(manifest.hasRelease ? "note.noassets" : "note.norelease");
+      return;
+    }
+
+    setNote(t("note.pick"));
+
+    var cards = document.querySelectorAll(".card");
+    for (var i = 0; i < cards.length; i += 1) {
+      var card = cards[i];
       var link = card.querySelector("[data-download]");
       var meta = card.querySelector("[data-meta]");
       var found = null;
-      for (var i = 0; i < manifest.assets.length; i += 1) {
-        if (matches(manifest.assets[i], card)) {
-          found = manifest.assets[i];
+      for (var j = 0; j < manifest.assets.length; j += 1) {
+        if (matches(manifest.assets[j], card)) {
+          found = manifest.assets[j];
           break;
         }
       }
 
       if (!found) {
         card.classList.add("card--unavailable");
-        link.textContent = "Not in this release";
+        link.textContent = t("button.missing");
         link.href = manifest.releaseUrl || RELEASES_URL;
         if (meta) meta.textContent = "";
-        return;
+        continue;
       }
 
-      link.textContent = "Download " + manifest.version;
+      card.classList.remove("card--unavailable");
+      link.textContent = t("button.download", { version: manifest.version });
       link.href = found.downloadUrl;
       if (meta) {
         var size = humanSize(found.size);
         meta.textContent = found.fileName + (size ? " · " + size : "");
       }
-    });
+    }
   }
+
+  if (i18n) {
+    i18n.init();
+    // Repaint the generated text too, not just the markup.
+    i18n.onChange(render);
+  }
+  render();
 
   /* Relative URL on purpose: the site is served from a Pages subdirectory,
      and a leading slash would look in the domain root. */
@@ -113,12 +156,13 @@
       if (!response.ok) throw new Error("manifest HTTP " + response.status);
       return response.json();
     })
-    .then(render)
+    .then(function (manifest) {
+      state.manifest = manifest;
+      state.error = null;
+      render();
+    })
     .catch(function (error) {
-      fallback(
-        "Release information could not be loaded (" +
-          error.message +
-          "). The GitHub releases page always works.",
-      );
+      state.error = error.message;
+      render();
     });
 })();
