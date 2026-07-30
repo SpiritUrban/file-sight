@@ -528,11 +528,32 @@ def test_model_search_prefers_the_explicit_override(monkeypatch, tmp_path) -> No
 
 
 def test_model_search_is_reported_for_diagnosis() -> None:
-    from filesight.inference.onnx_caption import describe_model_search
+    """Every candidate is accounted for, whatever the verdict happens to be.
+
+    The earlier version asserted `"HIT" in text or "miss" in text`. Those are
+    only two of four verdicts the function can emit, and which one occurs
+    depends on the machine: with a model pack installed it says HIT, with a
+    half-populated directory it says "missing ...", and on a machine that has
+    neither -- a CI runner, or any fresh checkout, since `models/` is
+    gitignored -- every candidate is "no such directory" and the assertion
+    failed for a reason that had nothing to do with the code.
+    """
+    from filesight.inference.onnx_caption import (
+        describe_model_search,
+        model_dir_candidates,
+    )
 
     text = describe_model_search()
     assert text
-    assert "HIT" in text or "miss" in text
+    # The raw inputs, so a missing variable is distinguishable from a bad one.
+    assert "env FILESIGHT_ONNX_MODEL_DIR=" in text
+    # Every candidate appears, each with a bracketed verdict. That is the
+    # contract; the wording of the verdict is not.
+    candidates = model_dir_candidates()
+    assert candidates, "there must always be somewhere to look"
+    for candidate in candidates:
+        assert str(candidate) in text
+    assert text.count("[") >= len(candidates)
 
 
 # --- device name ----------------------------------------------------------
