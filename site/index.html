@@ -70,6 +70,14 @@
     </nav>
 
     <header class="hero">
+      <!-- Background illustration. Decorative, so no alt text and hidden from
+           assistive tech: the heading below says everything it says. The
+           bottom dissolve is CSS rather than part of the image, so it is
+           always exactly the current background colour in either theme. -->
+      <div class="hero__art" aria-hidden="true">
+        <img src="./hero-art.png" alt="" width="1536" height="428" />
+      </div>
+
       <img class="hero__icon" src="./favicon.png" alt="" width="72" height="72" />
       <h1>FileSight</h1>
       <p class="hero__tagline" data-i18n="hero.tagline">

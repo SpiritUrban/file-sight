@@ -98,6 +98,63 @@ h3 {
   margin: 0 auto;
   padding: 4rem 0 3rem;
   text-align: center;
+  /* The illustration sits behind the text. `isolation` keeps its negative
+     z-index inside the hero instead of sliding under the page background. */
+  position: relative;
+  isolation: isolate;
+}
+
+/* ---------- hero illustration ---------- */
+
+.hero__art {
+  position: absolute;
+  z-index: -1;
+  /* Wider than the hero's 44rem text column: the drawing is composed
+     left to right and would lose both ends if clipped to the text width. */
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(80rem, 116vw);
+  top: 1rem;
+  pointer-events: none;
+  /* The dissolve into the page. A mask rather than a gradient overlay, so it
+     works whatever is behind it and needs no copy of the background colour
+     that could fall out of sync with the theme. */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 1) 0%,
+    rgba(0, 0, 0, 1) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+
+.hero__art img {
+  display: block;
+  width: 100%;
+  height: auto;
+  /* The artwork is black line work on transparency, so a single filter
+     serves both themes instead of two image files that can drift apart. */
+  opacity: 0.16;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hero__art img {
+    filter: invert(1);
+    opacity: 0.22;
+  }
+}
+
+/* Below this the hero text wraps to several lines and the drawing starts
+   crowding it; the page reads better with nothing behind it. */
+@media (max-width: 48rem) {
+  .hero__art {
+    display: none;
+  }
 }
 
 .hero__icon {

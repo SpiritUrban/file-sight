@@ -34,7 +34,21 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # The site content always comes from the default branch, even when this
+      # workflow is called from a tag.
+      #
+      # Checking out the tag instead publishes the site as it was AT that tag,
+      # silently reverting anything merged since. That is not hypothetical:
+      # the Ukrainian translation went live from main, and minutes later a
+      # release deploy replaced the whole page with the tag's older copy. The
+      # run was green, the version on the page was right, and the translation
+      # was simply gone.
+      #
+      # The manifest is unaffected, because it reads GITHUB_REF_NAME rather
+      # than the checkout: on a tag run it still resolves that tag's release.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch || 'main' }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
