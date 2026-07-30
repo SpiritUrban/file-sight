@@ -1,0 +1,276 @@
+name: CI
+
+# Action major versions are time-bound. Re-check them periodically as a
+# separate commit -- never mixed into a release investigation, or a
+# deprecation warning gets mistaken for the failure being debugged.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+# Two pushes to the same branch: the older run is pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------- python
+  # The analysis core. Deliberately installed WITHOUT torch: the tests that
+  # genuinely need it skip themselves (and run in `python-model` below), so
+  # the fast signal stays under a minute instead of pulling ~200 MB of
+  # PyTorch plus ~1 GB of model weights on every push.
+  python:
+    name: Python core (lint + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install lean dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # --no-deps: pyproject asks for torch and transformers, and this job
+          # is specifically the one that proves the code works without them.
+          pip install -e . --no-deps
+          pip install "pillow>=10" "typer>=0.12" "pytest>=8" "ruff>=0.6" numpy onnxruntime
+
+      - name: Ruff
+        shell: bash
+        run: |
+          set -o pipefail
+          ruff check src tests scripts 2>&1 | tee ruff.log
+
+      - name: Surface ruff output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Ruff output" ruff.log
+
+      - name: Pytest
+        shell: bash
+        run: |
+          set -o pipefail
+          # -rs prints the skip reasons, so "skipped: torch not installed" is
+          # visible rather than looking like silent coverage.
+          pytest -q -rs 2>&1 | tee pytest.log
+
+      - name: Surface pytest output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Pytest output" pytest.log
+
+  # ----------------------------------------------------------- python-model
+  # The captioning path with real PyTorch and real BLIP weights. Separate
+  # from the fast job because it downloads ~1 GB the first time; after that
+  # the Hugging Face cache makes it quick.
+  python-model:
+    name: Python captioning (torch + model)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Cache Hugging Face model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-blip-${{ runner.os }}
+
+      - name: Install with CPU-only PyTorch
+        run: |
+          python -m pip install --upgrade pip
+          # The default PyPI wheel drags in the whole CUDA stack (~2.5 GB) on
+          # Linux. The CPU index is the same torch without any of it.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ".[dev]"
+          pip install onnxruntime
+
+      - name: Pytest (captioning tests only)
+        shell: bash
+        run: |
+          set -o pipefail
+          pytest -q -rs tests/test_inference.py 2>&1 | tee pytest-model.log
+
+      - name: Surface pytest output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Pytest (model) output" pytest-model.log
+
+  # -------------------------------------------------------------- frontend
+  frontend:
+    name: Frontend (types + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - run: npm ci
+        working-directory: desktop
+
+      # `build` is `tsc --noEmit && vite build`: types and bundle in one step.
+      - name: Type-check and build
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee ../frontend-build.log
+
+      - name: Surface frontend build output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Frontend build output" frontend-build.log
+
+      - name: Unit tests
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee ../vitest.log
+
+      - name: Surface vitest output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Vitest output" vitest.log
+
+  # --------------------------------------------------------------- tooling
+  # The release scripts themselves. They have no dependencies, so this job
+  # is seconds -- and a broken version check or manifest generator would
+  # otherwise only show up during a release.
+  tooling:
+    name: Release scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Versions agree across every file
+        run: node scripts/check-version.mjs
+
+      - name: Download manifest unit tests
+        shell: bash
+        run: |
+          set -o pipefail
+          node --test scripts/ 2>&1 | tee node-test.log
+
+      - name: Surface node --test output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "node --test output" node-test.log
+
+      # The annotation script is the only tool that reports failures, so a
+      # break in it makes every other failure silent. Exercised on the three
+      # inputs that matter, including a log of nothing but progress lines --
+      # which must still print something.
+      - name: Self-test the annotation script
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'error: something broke\n' > /tmp/a.log
+          printf '' > /tmp/b.log
+          for i in $(seq 1 50); do printf '   Compiling crate-%s v0.1.0\n' "$i"; done > /tmp/c.log
+
+          bash scripts/ci-annotate.sh "self-test: normal" /tmp/a.log | grep -q 'something broke'
+          bash scripts/ci-annotate.sh "self-test: empty" /tmp/b.log | grep -q 'missing or empty'
+          bash scripts/ci-annotate.sh "self-test: progress only" /tmp/c.log | grep -q 'Compiling'
+          # Under GitHub's 4096-character annotation limit, with room to spare.
+          test "$(bash scripts/ci-annotate.sh "t" /tmp/c.log | wc -c)" -lt 3000
+          echo "annotation script behaves on all three inputs"
+
+  # ------------------------------------------------------------------ rust
+  # The desktop shell. This job is the whole point of running CI on Linux:
+  # it is the first place platform assumptions in Rust show up (rules 6a and
+  # 7a). "Green locally" on Windows says nothing about it.
+  rust:
+    name: Rust desktop shell (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          # Rule 5: a key of its own, or this job and the release matrix
+          # overwrite each other's cache.
+          key: ci-rust-linux
+
+      - name: Install Linux GUI dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # Rule 2: `tauri::generate_context!` embeds the frontend bundle at
+      # compile time and `dist/` is gitignored. Without this step cargo fails
+      # with "proc macro panicked" and exit code 101, which reads like a
+      # problem in the Rust code.
+      - name: Build the frontend first
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          npm ci
+          npm run build 2>&1 | tee ../frontend-for-rust.log
+
+      - name: Surface frontend build output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Frontend build (for Rust)" frontend-for-rust.log
+
+      - name: Formatting
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo fmt --manifest-path desktop/src-tauri/Cargo.toml --check 2>&1 | tee fmt.log
+
+      - name: Surface formatting diff
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "cargo fmt diff" fmt.log
+
+      - name: Clippy
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy --manifest-path desktop/src-tauri/Cargo.toml --all-targets \
+            --message-format=short -- -D warnings 2>&1 | tee clippy.log
+
+      - name: Surface clippy diagnostics
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Clippy output" clippy.log
+
+      - name: Tests
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml 2>&1 | tee cargo-test.log
+
+      # Rule 6a: platform-neutral code with a platform assumption compiles
+      # everywhere and only fails here.
+      - name: Surface cargo test output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "cargo test output" cargo-test.log

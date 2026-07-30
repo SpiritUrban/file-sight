@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "filesight"
-version = "0.6.0"
+version = "0.6.1"
 description = "Local image analysis tool that suggests human-readable file names"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [{ name = "Vitaliy Dyachuk" }]
 dependencies = [
     "torch>=2.2",
     "transformers>=4.44",
@@ -17,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
 # Exactly ONE of these onnxruntime wheels may be installed at a time
 # (they all ship the same top-level `onnxruntime` package).
 # DirectML (AMD / Intel on Windows) — also provides the CPU provider:
@@ -27,6 +28,11 @@ cuda = ["onnxruntime-gpu>=1.18"]
 # CPU-only ONNX (any OS; no GPU EP):
 onnx = ["onnxruntime>=1.18"]
 
+[project.urls]
+Homepage = "https://spiriturban.github.io/file-sight/"
+Repository = "https://github.com/SpiritUrban/file-sight"
+Author = "https://spiriturban.github.io/"
+
 [project.scripts]
 filesight = "filesight.cli:main"
 
@@ -35,3 +41,10 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+# A deliberately narrow rule set: pyflakes plus the error-class pycodestyle
+# checks. These are the ones that find real defects (unused names, undefined
+# names, broken imports). Style-only rules would turn CI red on code that
+# works, which teaches everyone to ignore CI.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]

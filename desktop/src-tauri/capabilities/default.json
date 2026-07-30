@@ -1,15 +1,25 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimal permissions: native pickers and revealing a file/folder in Explorer. No shell execution is exposed to the frontend; the Python worker is spawned and constrained by Rust. Thumbnail reads are limited by the assetProtocol scope in tauri.conf.json.",
+  "description": "Minimal permissions: native pickers, revealing a file/folder in Explorer, opening the author's and project's https links, and checking for updates. No shell execution is exposed to the frontend; the Python worker is spawned and constrained by Rust. Thumbnail reads are limited by the assetProtocol scope in tauri.conf.json.",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:allow-close",
+    "core:app:allow-version",
     "dialog:allow-open",
     "dialog:allow-message",
     "dialog:allow-confirm",
     "opener:allow-reveal-item-in-dir",
-    "opener:allow-open-path"
+    "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://spiriturban.github.io/*" },
+        { "url": "https://github.com/SpiritUrban/*" }
+      ]
+    },
+    "updater:default",
+    "process:allow-restart"
   ]
 }

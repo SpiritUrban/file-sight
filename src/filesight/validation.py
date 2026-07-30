@@ -175,8 +175,9 @@ def _check_naming_sections(entry: dict) -> list[tuple[str, str]]:
                 problems.append(
                     ("INVALID_NAMING", f"naming.base_name must not contain a path: {base}")
                 )
-            inner = naming.get("suggested_name")
-            outer = entry.get("suggested_name")
+            # A `naming.suggested_name` that disagrees with the top-level one
+            # is legitimate (editing the top-level name by hand is supported),
+            # so it is reported by `_naming_warnings`, not here.
     return problems
 
 

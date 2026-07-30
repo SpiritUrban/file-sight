@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "FileSight",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "identifier": "com.filesight.desktop",
   "build": {
     "beforeDevCommand": "npm run dev:vite",
@@ -30,12 +30,39 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["msi", "nsis"],
+    "targets": ["nsis", "msi", "deb", "appimage", "dmg", "app"],
+    "publisher": "Vitaliy Dyachuk",
+    "copyright": "Copyright (c) 2026 Vitaliy Dyachuk",
+    "homepage": "https://spiriturban.github.io/file-sight/",
+    "license": "MIT",
+    "shortDescription": "Local image and video analysis that suggests readable file names.",
+    "longDescription": "FileSight analyses images and short videos locally with a vision model and suggests human-readable file names. Nothing is renamed without explicit confirmation, every operation is journalled, and any rename can be undone.",
+    "category": "Utility",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
+      "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installerIcon": "icons/icon.ico"
+      }
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/SpiritUrban/file-sight/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDg1Nzc4MDMzQ0ZGQzNFQUYKUldTdlB2elBNNEIzaFJrSFVtRHNHYjJMTFBZSjJBK1JBYmtVQVhtUmRkMUxWMlVWTTlLcWtOZzcK"
+    }
   }
 }

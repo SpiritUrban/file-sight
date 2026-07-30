@@ -52,6 +52,38 @@ export async function openPath(path: string): Promise<void> {
   }
 }
 
+/**
+ * Open an https URL in the user's browser.
+ *
+ * Only URLs from `PRODUCT_METADATA` are ever passed here; the scheme check
+ * exists so a future caller cannot turn this into a way to launch a local
+ * program through the opener plugin.
+ */
+export async function openExternal(url: string): Promise<void> {
+  if (!url.startsWith("https://")) return;
+  try {
+    const opener = await import("@tauri-apps/plugin-opener");
+    await opener.openUrl(url);
+  } catch {
+    /* not running inside Tauri */
+  }
+}
+
+/**
+ * The version of the running bundle.
+ *
+ * Read from the bundle rather than written down in the UI (rule 18): a
+ * hardcoded version is wrong the moment a release is cut.
+ */
+export async function getAppVersion(): Promise<string | null> {
+  try {
+    const app = await import("@tauri-apps/api/app");
+    return await app.getVersion();
+  } catch {
+    return null;
+  }
+}
+
 /** Reveal a specific file, selecting it in Explorer. */
 export async function revealPath(path: string): Promise<void> {
   if (!path) return;

@@ -118,9 +118,11 @@ mod tests {
     fn backend_settings_persist() {
         let dir = temp_dir("settings-backend");
         let path = settings_file(&dir);
-        let mut settings = AppSettings::default();
-        settings.backend = "onnx-directml".to_string();
-        settings.allow_fallback = false;
+        let settings = AppSettings {
+            backend: "onnx-directml".to_string(),
+            allow_fallback: false,
+            ..AppSettings::default()
+        };
         save(&path, &settings).unwrap();
         let loaded = load(&path);
         assert_eq!(loaded.backend, "onnx-directml");
@@ -133,8 +135,10 @@ mod tests {
         // has no NVIDIA card; Python decides availability, not this layer.
         let dir = temp_dir("settings-cuda");
         let path = settings_file(&dir);
-        let mut settings = AppSettings::default();
-        settings.backend = "onnx-cuda".to_string();
+        let settings = AppSettings {
+            backend: "onnx-cuda".to_string(),
+            ..AppSettings::default()
+        };
         save(&path, &settings).unwrap();
         assert_eq!(load(&path).backend, "onnx-cuda");
     }
@@ -143,10 +147,14 @@ mod tests {
     fn save_then_load_round_trips() {
         let dir = temp_dir("settings-roundtrip");
         let path = settings_file(&dir);
-        let mut settings = AppSettings::default();
-        settings.default_profile = "photos".to_string();
-        settings.last_directory = Some("D:\\Photos".to_string());
-        settings.default_include_videos = true;
+        // A stored directory is only ever round-tripped as an opaque string,
+        // so building it with `PathBuf` (rule 6a) would test nothing extra.
+        let settings = AppSettings {
+            default_profile: "photos".to_string(),
+            last_directory: Some("D:\\Photos".to_string()),
+            default_include_videos: true,
+            ..AppSettings::default()
+        };
 
         save(&path, &settings).unwrap();
         let loaded = load(&path);

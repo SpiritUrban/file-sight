@@ -62,7 +62,12 @@ fn detect_repo_root() -> Option<PathBuf> {
     for start in candidates {
         let mut current: Option<&std::path::Path> = Some(start.as_path());
         while let Some(dir) = current {
-            if dir.join("src").join("filesight").join("worker.py").is_file() {
+            if dir
+                .join("src")
+                .join("filesight")
+                .join("worker.py")
+                .is_file()
+            {
                 return Some(dir.to_path_buf());
             }
             current = dir.parent();
@@ -188,9 +193,9 @@ fn send_worker_command(
     let handle = guard
         .as_mut()
         .ok_or_else(|| "The analysis worker could not be started.".to_string())?;
-    handle.write_line(&line).map_err(|reason| {
-        format!("The analysis worker is not responding ({reason}).")
-    })
+    handle
+        .write_line(&line)
+        .map_err(|reason| format!("The analysis worker is not responding ({reason})."))
 }
 
 #[tauri::command]
@@ -241,9 +246,19 @@ fn log_message(state: State<'_, AppState>, message: String) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+
+    // Rule 28: the updater has to be compiled in, not merely configured.
+    // The cfg gate mirrors the one in Cargo.toml exactly -- a mismatch here
+    // is a link error that only shows up on the platform that was left out.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
+
+    builder
         .manage(AppState::default())
         .setup(|app| {
             let state = app.state::<AppState>();

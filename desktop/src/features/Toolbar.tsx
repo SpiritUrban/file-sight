@@ -1,5 +1,6 @@
 import { FolderOpen, Play, Settings, X } from "lucide-react";
 
+import { AuthorLink } from "@/features/AuthorLink";
 import { isBusy, useAppStore } from "@/stores/appStore";
 
 interface ToolbarProps {
@@ -70,6 +71,10 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
         >
           <Settings className="h-4 w-4" aria-hidden />
         </button>
+
+        {/* Right after Settings: the reference placement, adapted to a
+            toolbar because this app has no sidebar. */}
+        <AuthorLink />
       </div>
 
       <div className="flex flex-wrap items-center gap-4 text-sm">

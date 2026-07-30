@@ -1,2 +1,28 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Rule 30: force LF in the index AND in the working tree.
+#
+# `text=auto` alone normalizes only what git stores; a Windows checkout still
+# gets CRLF, and `cargo fmt --check` on the Linux runner then fails on files
+# nobody touched. `eol=lf` makes every checkout match what CI sees.
+* text=auto eol=lf
+
+# Windows-only helpers are executed by PowerShell, which is fine with LF,
+# but batch files are not: cmd.exe needs CRLF for multi-line labels.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binaries: never touch.
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.mp4 binary
+*.mov binary
+*.mkv binary
+*.webm binary
+*.avi binary
+*.m4v binary
+*.onnx binary
+*.zip binary
+*.gz binary

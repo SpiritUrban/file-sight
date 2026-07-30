@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 
 import { Dialog } from "@/components/Dialog";
+import { FfmpegDownloadButton } from "@/features/FfmpegSetup";
 import {
   chooseFile,
   getAppSettings,
+  getAppVersion,
   getLogDirectory,
+  openExternal,
   openPath,
   saveAppSettings,
 } from "@/lib/platform";
+import { PRODUCT_METADATA } from "@/lib/productMetadata";
 import { useAppStore } from "@/stores/appStore";
 import type {
   AppSettings,
@@ -247,6 +251,15 @@ export function SettingsDialog({
             if (picked) patch({ ffprobe_path: picked });
           }}
         />
+        <div className="rounded border border-slate-200 bg-slate-50 p-2">
+          <p className="mb-2 text-xs text-slate-600">
+            Video support needs FFmpeg. Leave the fields above empty and let
+            FileSight fetch a build into its own folder — nothing else on the
+            system is changed, and no PATH edit is needed.
+          </p>
+          <FfmpegDownloadButton />
+        </div>
+
         <PathField
           label="Config file (filesight.toml)"
           value={settings.config_path}
@@ -474,7 +487,58 @@ export function SettingsDialog({
             </dl>
           ) : null}
         </div>
+
+        <AboutSection />
       </div>
     </Dialog>
+  );
+}
+
+/**
+ * Settings -> About: a surface the user reached deliberately, so the
+ * author's name and a link to what else he builds belong here (section 7).
+ * The version is read from the bundle, never written down (rule 18).
+ */
+function AboutSection() {
+  const [version, setVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => setVersion(await getAppVersion()))();
+  }, []);
+
+  return (
+    <div className="border-t border-slate-200 pt-3">
+      <h3 className="mb-2 font-medium">About</h3>
+      <dl className="space-y-0.5 text-xs">
+        <div className="flex justify-between">
+          <dt className="text-slate-600">{PRODUCT_METADATA.productName}</dt>
+          <dd>{version ?? "—"}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-600">Author</dt>
+          <dd>{PRODUCT_METADATA.author}</dd>
+        </div>
+        <div className="flex justify-between">
+          <dt className="text-slate-600">License</dt>
+          <dd>{PRODUCT_METADATA.license}</dd>
+        </div>
+      </dl>
+      <div className="mt-2 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => void openExternal(PRODUCT_METADATA.authorUrl)}
+        >
+          More projects and services
+        </button>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => void openExternal(PRODUCT_METADATA.repositoryUrl)}
+        >
+          Source code
+        </button>
+      </div>
+    </div>
   );
 }

@@ -253,6 +253,7 @@ export type WorkerCommand =
   | "get_config"
   | "get_environment"
   | "make_thumbnail"
+  | "download_ffmpeg"
   | "test_backend"
   | "benchmark_backend"
   | "list_backends";

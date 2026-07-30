@@ -17,7 +17,9 @@ import { MediaTable } from "@/features/MediaTable";
 import { ProgressBar } from "@/features/ProgressBar";
 import { SettingsDialog } from "@/features/SettingsDialog";
 import { Toolbar } from "@/features/Toolbar";
-import { chooseDirectory, openPath, revealPath } from "@/lib/platform";
+import { UpdateBanner } from "@/features/UpdateBanner";
+import { chooseDirectory, openExternal, openPath, revealPath } from "@/lib/platform";
+import { PRODUCT_METADATA } from "@/lib/productMetadata";
 import { isBusy, isFileOperation, useAppStore } from "@/stores/appStore";
 import type { UndoResult, ValidationIssue } from "@/types";
 
@@ -160,6 +162,7 @@ export default function App() {
         <EnvironmentBar />
       </header>
 
+      <UpdateBanner />
       <Toolbar onChooseFolder={onChooseFolder} onOpenSettings={() => setShowSettings(true)} />
       <ProgressBar />
 
@@ -236,6 +239,17 @@ export default function App() {
           <button type="button" className="btn-primary" onClick={onChooseFolder}>
             Choose folder
           </button>
+          {/* Seen once, before any work starts: one quiet line, no banner. */}
+          <p className="text-[11px] text-slate-400">
+            Built by{" "}
+            <button
+              type="button"
+              className="underline decoration-dotted hover:text-slate-600"
+              onClick={() => void openExternal(PRODUCT_METADATA.authorUrl)}
+            >
+              {PRODUCT_METADATA.author}
+            </button>
+          </p>
         </div>
       ) : (
         <>

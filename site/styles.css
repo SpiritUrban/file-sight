@@ -1,0 +1,250 @@
+/* FileSight showcase site.
+ *
+ * No build step, no external requests: one stylesheet, system fonts, and a
+ * palette that follows the visitor's light/dark preference. Anything fetched
+ * from a CDN would be one more thing that can break a release deploy. */
+
+:root {
+  color-scheme: light dark;
+
+  --bg: #f8fafc;
+  --bg-raised: #ffffff;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-faint: #94a3b8;
+  --accent: #4f46e5;
+  --accent-text: #ffffff;
+  --accent-soft: #eef2ff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1120;
+    --bg-raised: #131c31;
+    --border: #24314d;
+    --text: #e8edf7;
+    --text-muted: #a6b3cc;
+    --text-faint: #6d7d99;
+    --accent: #8b8bf7;
+    --accent-text: #0b1120;
+    --accent-soft: #1b2440;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0 1.25rem 4rem;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent);
+}
+
+h1,
+h2,
+h3 {
+  line-height: 1.2;
+  margin: 0 0 0.5rem;
+}
+
+/* ---------- hero ---------- */
+
+.hero {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 4rem 0 3rem;
+  text-align: center;
+}
+
+.hero__icon {
+  border-radius: 16px;
+}
+
+.hero h1 {
+  font-size: clamp(2.25rem, 6vw, 3.25rem);
+  letter-spacing: -0.02em;
+  margin-top: 1rem;
+}
+
+.hero__tagline {
+  font-size: 1.15rem;
+  color: var(--text-muted);
+  margin: 0 auto 1rem;
+  max-width: 34rem;
+}
+
+.hero__version {
+  color: var(--text-faint);
+  font-size: 0.85rem;
+  margin: 0 0 1.75rem;
+}
+
+.hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+/* ---------- buttons ---------- */
+
+.button {
+  display: inline-block;
+  padding: 0.6rem 1.15rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition:
+    transform 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.button:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.button--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.button[aria-disabled="true"] {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+/* ---------- sections ---------- */
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+section {
+  margin: 0 0 3.5rem;
+}
+
+.features {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+
+.features article {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem;
+}
+
+.features h2 {
+  font-size: 1.05rem;
+}
+
+.features p {
+  color: var(--text-muted);
+  font-size: 0.93rem;
+  margin: 0;
+}
+
+.downloads h2,
+.requirements h2 {
+  font-size: 1.5rem;
+}
+
+.downloads__note {
+  color: var(--text-muted);
+  margin-top: 0;
+}
+
+.cards {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.card h3 {
+  font-size: 1.05rem;
+  margin: 0;
+}
+
+.card__kind {
+  color: var(--text-muted);
+  font-size: 0.88rem;
+  margin: 0;
+}
+
+.card__meta {
+  color: var(--text-faint);
+  font-size: 0.78rem;
+  margin: 0;
+  word-break: break-all;
+}
+
+.card--unavailable {
+  opacity: 0.7;
+}
+
+.downloads__all {
+  font-size: 0.9rem;
+  margin-top: 1.25rem;
+}
+
+.requirements {
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.5rem;
+}
+
+.requirements p {
+  color: var(--text-muted);
+  margin: 0 0 0.75rem;
+}
+
+.requirements p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- footer ---------- */
+
+.footer {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.footer__legal {
+  color: var(--text-faint);
+  font-size: 0.82rem;
+}

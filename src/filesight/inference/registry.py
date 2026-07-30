@@ -300,7 +300,6 @@ def benchmark_backend(
         return result
 
     try:
-        import numpy as np
 
         cold = time.perf_counter()
         backend.initialize()

@@ -527,6 +527,26 @@ export class MockWorkerClient extends BaseWorkerClient {
           thumbnail: null,
         });
 
+      case "download_ffmpeg": {
+        // Mirrors the real command's event shape (progress per tool, then a
+        // summary) so the button can be driven in mock mode without network.
+        const tools = (payload.tools as string[] | undefined) ?? [
+          "ffmpeg",
+          "ffprobe",
+        ];
+        for (const tool of tools) {
+          this.emit(requestId, "progress", { tool, stage: "downloading" });
+          this.emit(requestId, "progress", { tool, stage: "extracting" });
+        }
+        return this.emit(requestId, "completed", {
+          directory: "/mock/FileSight/bin",
+          version: "6.1",
+          installed: Object.fromEntries(
+            tools.map((tool) => [tool, `/mock/FileSight/bin/${tool}`]),
+          ),
+        });
+      }
+
       default:
         return this.emit(requestId, "error", {
           code: "UNKNOWN_COMMAND",

@@ -32,6 +32,15 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/
 desktop/src-tauri/app-icon.png
 
+# Updater signing keys. Losing them is unrecoverable (every installed copy
+# stops accepting updates); committing them is worse. They live only on the
+# owner's machine and in GitHub Actions secrets.
+.tauri-key
+.tauri-key.*
+
+# Generated in CI from the GitHub release; never committed.
+site/download-manifest.json
+
 # OS
 Thumbs.db
 .DS_Store

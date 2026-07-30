@@ -1,0 +1,90 @@
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+      - 'scripts/generate-download-manifest.mjs'
+      - 'package.json'
+      - '.github/workflows/pages.yml'
+  # Rule 14: called by release.yml, because a release created by GITHUB_TOKEN
+  # cannot trigger a workflow of its own.
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  # Deliberately NOT cancel-in-progress. A push to main during a release
+  # would otherwise cancel the release's own deploy, and the run would still
+  # report success while the live site kept serving the previous version --
+  # which is exactly the symptom of the one unexplained failure on record.
+  # Pages deploys are cheap; a queued one costs less than that ambiguity.
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # The site is plain HTML/CSS/JS: no bundler, no dependencies, nothing
+      # that can break a release deploy. The only generated file is the
+      # download manifest.
+      - name: Generate the download manifest
+        shell: bash
+        env:
+          # Without a token the API allows 60 requests/hour per IP and then
+          # answers 403 -- on a shared runner IP that happens for real.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -o pipefail
+          node scripts/generate-download-manifest.mjs 2>&1 | tee manifest.log
+
+      - name: Surface manifest output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Download manifest output" manifest.log
+
+      # A public annotation stating what the script actually resolved. Run
+      # logs need authentication even on a public repository; annotations do
+      # not, and this is the record that says which release the live site
+      # describes.
+      - name: Report the resolved release
+        run: |
+          version=$(node -p "require('./site/download-manifest.json').version")
+          count=$(node -p "require('./site/download-manifest.json').assets.length")
+          tag=$(node -p "require('./site/download-manifest.json').tag || 'none'")
+          echo "::notice title=Download manifest::ref=${GITHUB_REF_NAME} -> tag ${tag}, version ${version}, ${count} assets"
+
+      # Every download link must be a real release asset, never a guessed
+      # name (rule 15). An empty asset list is legitimate before the first
+      # release; a *tag* run with an empty list is not, and shipping it would
+      # replace working download buttons with "see all releases".
+      - name: Refuse to publish an empty manifest for a tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          count=$(node -p "require('./site/download-manifest.json').assets.length")
+          if [ "$count" -eq 0 ]; then
+            echo "::error title=Empty manifest::The release for ${GITHUB_REF_NAME} has no downloadable assets; refusing to publish a site that has nothing to offer."
+            exit 1
+          fi
+          echo "manifest has ${count} assets"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./site
+      - id: deployment
+        uses: actions/deploy-pages@v4

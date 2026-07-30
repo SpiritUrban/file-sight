@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FileSight — local image and video analysis that suggests readable file names</title>
+
+    <!--
+      Every URL on this page is relative (`./…`). The site lives in a Pages
+      subdirectory (https://spiriturban.github.io/file-sight/), so a leading
+      slash would point at the domain root and 404. Relative paths need no
+      build-time base at all; GitHub Pages redirects the directory URL to add
+      the trailing slash, so they resolve either way.
+    -->
+    <link rel="icon" type="image/png" href="./favicon.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="canonical" href="https://spiriturban.github.io/file-sight/" />
+
+    <meta
+      name="description"
+      content="FileSight analyses images and short videos locally with a vision model and suggests human-readable file names. Nothing is renamed without confirmation, and every rename can be undone."
+    />
+    <meta name="author" content="Vitaliy Dyachuk" />
+    <link rel="author" href="https://spiriturban.github.io/" />
+
+    <!-- Open Graph and Twitter Card: every reshare of this link carries the
+         product name, the description and the author's name, with no further
+         effort. Absolute URLs are required here; relative ones are ignored. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FileSight" />
+    <meta property="og:title" content="FileSight — readable file names, generated locally" />
+    <meta
+      property="og:description"
+      content="Analyse images and short videos on your own machine and rename them to something you can actually read. Free and open source, by Vitaliy Dyachuk."
+    />
+    <meta property="og:url" content="https://spiriturban.github.io/file-sight/" />
+    <meta
+      property="og:image"
+      content="https://spiriturban.github.io/file-sight/social-card.png"
+    />
+    <meta property="og:image:alt" content="The FileSight application icon" />
+    <meta property="article:author" content="https://spiriturban.github.io/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FileSight — readable file names, generated locally" />
+    <meta
+      name="twitter:description"
+      content="Analyse images and short videos on your own machine and rename them to something you can actually read."
+    />
+    <meta
+      name="twitter:image"
+      content="https://spiriturban.github.io/file-sight/social-card.png"
+    />
+  </head>
+
+  <body>
+    <header class="hero">
+      <img class="hero__icon" src="./favicon.png" alt="" width="72" height="72" />
+      <h1>FileSight</h1>
+      <p class="hero__tagline">
+        Your photos and clips get names you can read — and it all happens on
+        your own machine.
+      </p>
+      <p class="hero__version" id="version-line" aria-live="polite">
+        Loading release information…
+      </p>
+
+      <div class="hero__actions">
+        <a class="button button--primary" href="#downloads">Download</a>
+        <a
+          class="button"
+          href="https://github.com/SpiritUrban/file-sight"
+          rel="noopener"
+          >Source on GitHub</a
+        >
+      </div>
+    </header>
+
+    <main>
+      <section class="features" aria-label="What it does">
+        <article>
+          <h2>Local, not uploaded</h2>
+          <p>
+            A vision model runs on your machine and describes each file. Nothing
+            leaves the computer, so private folders stay private.
+          </p>
+        </article>
+        <article>
+          <h2>Nothing renames itself</h2>
+          <p>
+            You see the suggested names, edit any of them, validate, and dry-run
+            first. Files change only after you confirm the plan.
+          </p>
+        </article>
+        <article>
+          <h2>Every rename is reversible</h2>
+          <p>
+            Each operation is journalled, so one click undoes the last batch —
+            including swaps, cycles and case-only changes.
+          </p>
+        </article>
+        <article>
+          <h2>Images and short videos</h2>
+          <p>
+            JPEG, PNG and WebP, plus MP4, MOV, MKV, WebM and AVI clips: frames
+            are sampled and the clearest ones describe the file.
+          </p>
+        </article>
+      </section>
+
+      <section id="downloads" class="downloads">
+        <h2>Downloads</h2>
+        <p class="downloads__note" id="release-note"></p>
+
+        <!-- Cards are matched to release assets by platform + architecture +
+             file suffix. Platform and architecture alone are not a unique key:
+             Windows ships an .exe and an .msi, Linux an .AppImage and a .deb. -->
+        <div class="cards" id="cards">
+          <article class="card" data-platform="windows" data-arch="x64" data-ext=".exe">
+            <h3>Windows</h3>
+            <p class="card__kind">Installer (.exe)</p>
+            <a class="button button--primary" data-download href="#">Checking…</a>
+            <p class="card__meta" data-meta></p>
+          </article>
+
+          <article class="card" data-platform="windows" data-arch="x64" data-ext=".msi">
+            <h3>Windows</h3>
+            <p class="card__kind">MSI package</p>
+            <a class="button" data-download href="#">Checking…</a>
+            <p class="card__meta" data-meta></p>
+          </article>
+
+          <article class="card" data-platform="macos" data-arch="arm64" data-ext=".dmg">
+            <h3>macOS</h3>
+            <p class="card__kind">Apple Silicon (.dmg)</p>
+            <a class="button button--primary" data-download href="#">Checking…</a>
+            <p class="card__meta" data-meta></p>
+          </article>
+
+          <article class="card" data-platform="macos" data-arch="x64" data-ext=".dmg">
+            <h3>macOS</h3>
+            <p class="card__kind">Intel (.dmg)</p>
+            <a class="button" data-download href="#">Checking…</a>
+            <p class="card__meta" data-meta></p>
+          </article>
+
+          <article class="card" data-platform="linux" data-arch="x64" data-ext=".appimage">
+            <h3>Linux</h3>
+            <p class="card__kind">AppImage</p>
+            <a class="button button--primary" data-download href="#">Checking…</a>
+            <p class="card__meta" data-meta></p>
+          </article>
+
+          <article class="card" data-platform="linux" data-arch="x64" data-ext=".deb">
+            <h3>Linux</h3>
+            <p class="card__kind">Debian / Ubuntu (.deb)</p>
+            <a class="button" data-download href="#">Checking…</a>
+            <p class="card__meta" data-meta></p>
+          </article>
+        </div>
+
+        <p class="downloads__all">
+          <a href="https://github.com/SpiritUrban/file-sight/releases" rel="noopener"
+            >All releases and checksums on GitHub</a
+          >
+        </p>
+      </section>
+
+      <section class="requirements">
+        <h2>Before you install — read this</h2>
+        <p>
+          FileSight's analysis engine is a Python program, and the desktop app
+          runs it. The installer does <strong>not</strong> yet bundle Python, so
+          the app needs <strong>Python 3.11 or newer</strong> plus the FileSight
+          core installed from the repository. The
+          <a href="https://github.com/SpiritUrban/file-sight#встановлення" rel="noopener"
+            >README</a
+          >
+          has the two commands.
+        </p>
+        <p>
+          Video support needs FFmpeg, and that part <em>is</em> one click:
+          the app offers to download it into its own folder, with no PATH
+          editing and nothing else on the system touched.
+        </p>
+        <p>
+          Updates are built in — an installed copy checks for a new release and
+          offers to install it.
+        </p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        Built by
+        <a href="https://spiriturban.github.io/" rel="author noopener"
+          >Vitaliy Dyachuk</a
+        >
+        — more projects and services on the
+        <a href="https://spiriturban.github.io/" rel="noopener">personal hub</a>.
+      </p>
+      <p class="footer__legal">
+        MIT licensed.
+        <a href="https://github.com/SpiritUrban/file-sight" rel="noopener">Source</a> ·
+        <a href="https://github.com/SpiritUrban/file-sight/issues" rel="noopener"
+          >Report a problem</a
+        >
+      </p>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,11 +1,24 @@
 # FileSight
 
+[![CI](https://github.com/SpiritUrban/file-sight/actions/workflows/ci.yml/badge.svg)](https://github.com/SpiritUrban/file-sight/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/badge/downloads-site-4f46e5)](https://spiriturban.github.io/file-sight/)
+
 FileSight — локальна консольна програма, яка аналізує вміст зображень за
 допомогою vision-моделі, пропонує зрозумілі назви файлів і вміє **безпечно
 застосовувати** ці назви з журналом та скасуванням.
 
 Головний принцип: **без явного `--apply` жоден файл не змінюється**, а
 сторонні файли ніколи не перезаписуються.
+
+**Готові інсталятори:** <https://spiriturban.github.io/file-sight/> —
+Windows (`.exe`, `.msi`), macOS (`.dmg`, Apple Silicon та Intel), Linux
+(`.AppImage`, `.deb`). Встановлена копія перевіряє оновлення сама.
+
+> **Що потрібно знати до встановлення:** ядро аналізу — це Python-програма,
+> і інсталятор **її не містить**. Застосунку потрібен Python 3.11+ з
+> установленим FileSight (див. [Встановлення](#встановлення-windows-powershell)).
+> FFmpeg для відео — один клік у самому застосунку.
 
 ## Можливості
 
@@ -101,15 +114,16 @@ python scripts/check_inference.py
 
 ## Desktop-застосунок
 
-Графічний інтерфейс для Windows (Tauri 2 + React). Ядро аналізу
-залишається на Python — GUI лише керує ним.
+Графічний інтерфейс (Tauri 2 + React). Ядро аналізу залишається на
+Python — GUI лише керує ним. Інсталятори збираються під Windows, macOS
+(Apple Silicon та Intel) і Linux; розробка й перевірка велися на Windows.
 
 ### Поточний статус
 
-Робоча перша версія. **Python не входить до інсталятора**: застосунок
-очікує встановлений Python 3.11+ з `pip install -e .` (і FFmpeg, якщо
-потрібні відео). Вбудована перевірка `Test environment` показує, чого
-бракує.
+Робоча версія з автооновленням. **Python не входить до інсталятора**:
+застосунок очікує встановлений Python 3.11+ з `pip install -e .`. Вбудована
+перевірка `Test environment` показує, чого бракує. FFmpeg для відео
+завантажується одним кліком із самого застосунку.
 
 ### Системні вимоги для розробки
 
@@ -163,17 +177,27 @@ npm run dev:mock
 ### Збірка для Windows
 
 ```powershell
+# Ключ підпису оновлень потрібен і локально: `createUpdaterArtifacts`
+# увімкнено, тому без нього збірка падає з
+# "A public key has been found, but no private key".
+$env:TAURI_SIGNING_PRIVATE_KEY = Get-Content .tauri-key -Raw
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "<пароль ключа>"
+
 cd desktop
 npm run tauri build
 ```
 
-Результат:
+Результат (імена формуються з `productName` — не хардкодити їх ніде):
 
 ```text
 desktop\src-tauri\target\release\filesight-desktop.exe
-desktop\src-tauri\target\release\bundle\msi\FileSight_0.5.0_x64_en-US.msi
-desktop\src-tauri\target\release\bundle\nsis\FileSight_0.5.0_x64-setup.exe
+desktop\src-tauri\target\release\bundle\msi\FileSight_<версія>_x64_en-US.msi
+desktop\src-tauri\target\release\bundle\nsis\FileSight_<версія>_x64-setup.exe
+...\bundle\nsis\FileSight_<версія>_x64-setup.exe.sig   ← підпис для апдейтера
 ```
+
+Цілі бандлів у `tauri.conf.json` перелічені для всіх платформ; Tauri сам
+залишає ті, що застосовні до хоста (на Windows — `nsis` і `msi`).
 
 Це інсталятор **лише для GUI** — Python, залежності й модель
 встановлюються окремо.
@@ -436,6 +460,16 @@ FileSight може аналізувати короткі відео, витяг�
 
 Для зображень FFmpeg не потрібен. Для відео потрібні `ffmpeg` і `ffprobe`.
 
+**У desktop-застосунку це один клік.** Там, де раніше було пасивне
+«FFmpeg: Not found», тепер кнопка **«Download FFmpeg automatically»** (у
+рядку стану та в Settings). Вона завантажує статичну збірку у власну папку
+FileSight (`%LOCALAPPDATA%\FileSight\bin` на Windows,
+`~/Library/Application Support/FileSight/bin` на macOS,
+`$XDG_DATA_HOME/FileSight/bin` на Linux), нічого більше в системі не
+змінює, PATH не торкається — і відео починають працювати без перезапуску.
+
+Для CLI (або якщо хочеться контролювати збірку вручну) — способи нижче.
+
 **Найпростіший спосіб — розпакувати збірку в папку проєкту.** Завантажте
 архів із <https://www.gyan.dev/ffmpeg/builds/> і розпакуйте його поруч із
 `README.md`. FileSight знайде його сам:
@@ -477,7 +511,10 @@ filesight scan "D:\Media" --videos-only `
   --ffprobe-path "C:\ffmpeg\bin\ffprobe.exe"
 ```
 
-Порядок пошуку: **явний шлях (CLI або Settings) → папка проєкту → PATH**.
+Порядок пошуку: **явний шлях (CLI або Settings) → папка 1-клік-завантаження
+→ папка проєкту → поточна тека → поруч з інтерпретатором → PATH**. Список
+зон визначено в одному місці (`src/filesight/ffmpeg_setup.py:search_roots`),
+щоб місце завантаження й місце пошуку не могли розійтися.
 
 ### Параметри відео
 
@@ -663,11 +700,69 @@ pytest
 - Шляхи довші за 259 символів не підтримуються.
 - Відео аналізується лише за кадрами (без руху/звуку/тексту на екрані),
   на CPU, послідовно; довгі набори обробляються повільно.
-- Немає GUI, GPU-прискорення.
+- Captioning реально виконується на CPU: GPU-бекенди перевірені
+  self-test'ом, але ONNX caption-моделі ще немає (див. `progress.md`).
+- **Інсталятор не містить Python.** Застосунок запускає встановлений
+  інтерпретатор; на «чистій» машині без Python він покаже, чого бракує,
+  але не працюватиме.
 
 ## Roadmap (наступні ітерації)
 
-1. OCR для скриншотів і документів (наповнить `{text}`).
-2. Прискорення inference (ONNX/DirectML, батчинг) для Radeon RX 580.
-3. Ширші словники української та кращий розбір ознак.
-4. Графічний інтерфейс.
+1. Bundled Python worker (PyInstaller) + model pack — щоб інсталятор
+   працював на машині без Python (`docs/windows-packaging.md`).
+2. OCR для скриншотів і документів (наповнить `{text}`).
+3. Прискорення inference (ONNX/DirectML, батчинг) для Radeon RX 580.
+4. Ширші словники української та кращий розбір ознак.
+
+## Релізи, CI та автооновлення
+
+Три воркфлоу в `.github/workflows/`:
+
+| Файл | Коли | Що робить |
+| --- | --- | --- |
+| `ci.yml` | кожен пуш і PR | ruff + pytest (без torch), окремо pytest з torch і моделлю, tsc + vitest, тести release-скриптів, і **Rust-джоба на Linux** — саме вона ловить платформні припущення, яких з Windows не видно |
+| `release.yml` | тег `v*.*.*` або ручний запуск | звіряє версії між усіма файлами, збирає 4 платформи, підписує, публікує реліз із `latest.json`, потім деплоїть сайт |
+| `pages.yml` | пуш у `main` (шляхи сайту), `workflow_call`, вручну | генерує `site/download-manifest.json` з GitHub API і публікує сайт |
+
+Версія дублюється у восьми файлах, тому її не редагують руками:
+
+```powershell
+node scripts/sync-version.mjs 0.7.0   # записати всюди
+node scripts/check-version.mjs        # звірити (це ж робить CI)
+```
+
+Потім тег `v0.7.0` — і реліз збереться сам. Ручний запуск
+`Actions → Release → Run workflow` збирає все, але **нічого не публікує**:
+найдешевший спосіб перевірити збірки до тега.
+
+Повний порядок, ручні кроки на GitHub (їх може зробити лише власник) і
+команди перевірки — у [`docs/releasing.md`](docs/releasing.md).
+
+Автооновлення ввімкнене: `tauri-plugin-updater` скомпільований у застосунок,
+при старті питає `latest.json` і показує банер **«Update available»** з
+кнопкою встановлення. Оновлення підписані ключем, публічна частина якого —
+у `tauri.conf.json`.
+
+Діагностика падінь: логи ранів вимагають авторизації навіть у публічному
+репозиторії, а анотації — ні. Тому кожен крок, що може впасти, віддає хвіст
+свого логу в анотацію через `scripts/ci-annotate.sh` (ліміт GitHub — 4096
+символів, і він відкидає **хвіст**, тому скрипт подає ~2500, знімає ANSI й
+викидає рядки прогресу). Читати так:
+
+```bash
+curl -s "https://api.github.com/repos/SpiritUrban/file-sight/actions/runs?per_page=3"
+curl -s "https://api.github.com/repos/SpiritUrban/file-sight/actions/runs/<RUN_ID>/jobs"
+curl -s "https://api.github.com/repos/SpiritUrban/file-sight/check-runs/<JOB_ID>/annotations"
+```
+
+## Автор
+
+**Vitaliy Dyachuk** — роблю локальні інструменти, які виконують нудну
+роботу з файлами й медіа за людину: без хмари, без підписок і без того,
+щоб ваші фото десь завантажувались.
+
+Інші проєкти та послуги: <https://spiriturban.github.io/>
+· GitHub: <https://github.com/SpiritUrban>
+
+Ліцензія — [MIT](LICENSE): користуйтеся вільно, зокрема комерційно,
+зберігаючи рядок авторства.

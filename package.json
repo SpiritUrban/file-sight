@@ -1,13 +1,23 @@
 {
   "name": "file-sight",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "Repo-root shortcuts. The desktop app itself lives in desktop/.",
+  "license": "MIT",
+  "author": "Vitaliy Dyachuk (https://spiriturban.github.io/)",
+  "homepage": "https://spiriturban.github.io/file-sight/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SpiritUrban/file-sight.git"
+  },
   "scripts": {
     "dev": "npm --prefix desktop run dev",
     "dev:mock": "npm --prefix desktop run dev:mock",
     "build": "npm --prefix desktop run tauri build",
     "test": "npm --prefix desktop run test",
-    "install:desktop": "npm --prefix desktop install"
+    "install:desktop": "npm --prefix desktop install",
+    "version:check": "node scripts/check-version.mjs",
+    "version:sync": "node scripts/sync-version.mjs",
+    "site:manifest": "node scripts/generate-download-manifest.mjs"
   }
 }

@@ -1,0 +1,166 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  # A manual run builds every platform and publishes nothing. It is the
+  # cheapest way to catch most problems before a tag exists -- but note that
+  # `deploy-site` is skipped in a manual run, so the site deploy is the one
+  # thing it cannot prove.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Cheap gate first: a version mismatch caught here costs 20 seconds, caught
+  # after publishing it costs a tag that must not be moved (rule 13).
+  validate-version:
+    name: Validate version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      # No install step: the version scripts have no dependencies on purpose.
+      - run: node scripts/check-version.mjs
+
+  build-tauri:
+    name: Build (${{ matrix.label }})
+    needs: validate-version
+    permissions:
+      contents: write
+    # Rule 11: the signing secrets belong to the JOB. Set only on the
+    # tauri-action step, any other step that builds fails with
+    # "A public key has been found, but no private key".
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Rule 3: no `macos-13` -- that label does not get a runner and the
+        # job sits in Queued for hours without letting the run finish. The
+        # Intel build cross-compiles from macos-latest instead.
+        # Rule 4: matrix keys use underscores; `matrix.rust-targets` parses
+        # as a subtraction.
+        include:
+          - platform: 'windows-latest'
+            label: 'windows-x64'
+            args: ''
+            rust_targets: ''
+          - platform: 'ubuntu-22.04'
+            label: 'linux-x64'
+            args: ''
+            rust_targets: ''
+          - platform: 'macos-latest'
+            label: 'macos-arm64'
+            args: '--target aarch64-apple-darwin'
+            rust_targets: 'aarch64-apple-darwin'
+          - platform: 'macos-latest'
+            label: 'macos-x64'
+            args: '--target x86_64-apple-darwin'
+            rust_targets: 'x86_64-apple-darwin'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: '${{ matrix.rust_targets }}'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          key: ${{ matrix.label }}   # rule 5
+
+      - name: Install Linux GUI dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - run: npm ci
+        working-directory: desktop
+
+      # tauri-action collects whatever it finds in the bundle directories, and
+      # `target/` comes back from the cache. A bundle left over from an
+      # earlier version would be uploaded next to the real ones -- a release
+      # containing two versions, with no error anywhere to explain it.
+      - name: Remove any cached bundles
+        shell: bash
+        run: rm -rf desktop/src-tauri/target/*/bundle desktop/src-tauri/target/bundle
+
+      # Rule 20: tauri-action reports an exit code and nothing else. Run the
+      # same build ourselves first so a failure has a readable cause.
+      #
+      # Rule 9a: this must be invoked EXACTLY the way tauri-action invokes it,
+      # or it gives false confidence -- our step green, the action's step red.
+      # The action composes `<tauriScript> build -- <args>`; with
+      # tauriScript = 'npm run tauri' that is the line below, verbatim.
+      - name: Build desktop app (readable failure)
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -o pipefail
+          npm run tauri build -- ${{ matrix.args }} 2>&1 | tee ../build.log
+
+      # Rule 21a: the matrix label goes in the title, or four annotations are
+      # indistinguishable.
+      - name: Surface build output
+        if: failure()
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Build output (${{ matrix.label }})" build.log
+
+      - name: Build, sign and upload
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: './desktop'
+          # Rule 8a: NO trailing `--`. The action inserts the separator
+          # itself; adding one produces `npm run tauri -- build -- --target x`,
+          # npm strips only the first, and Tauri then forwards `--target` to
+          # cargo alone: cargo builds for the requested architecture while
+          # Tauri bundles for the runner's and cannot find the binary.
+          tauriScript: 'npm run tauri'
+          # Rule 10: without the guard a manual run creates a release tagged
+          # `main`.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('FileSight {0}', github.ref_name) || '' }}
+          releaseBody: |
+            FileSight ${{ github.ref_name }}.
+
+            Downloads and install notes: https://spiriturban.github.io/file-sight/
+
+            The desktop app runs the Python analysis core, so it needs Python
+            3.11+ with FileSight installed; see the README. FFmpeg is one
+            click inside the app.
+          releaseDraft: false
+          prerelease: false
+          # Rule 12: without latest.json the updater endpoint is a 404 and no
+          # installed copy ever sees an update.
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+  # Rule 14: `release: types: [published]` does NOT trigger a workflow --
+  # GitHub deliberately ignores events raised by GITHUB_TOKEN. The site is
+  # therefore deployed by a dependent job inside this run.
+  deploy-site:
+    name: Deploy site
+    needs: build-tauri
+    # Skipped on a manual run, and that is correct: there is nothing
+    # published to build a manifest from, and running it would overwrite the
+    # live manifest with an empty one. The consequence to remember is that a
+    # green dry run says "the builds are fine", not "the release will pass".
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

@@ -2,10 +2,10 @@
 
 import io
 import json
+import re
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 
 import pytest
@@ -475,7 +475,6 @@ def test_scan_records_inference_metadata(worker, tmp_path: Path, monkeypatch) ->
 
     from filesight.inference.base import BackendDiagnostics, CaptionResult
     from filesight.inference.registry import BackendSelection
-    from helpers import make_file
 
     # Valid image so the pipeline reaches captioning.
     Image.new("RGB", (32, 32), (10, 20, 30)).save(tmp_path / "IMG_1.jpg")
@@ -719,7 +718,9 @@ def test_preload_flag_is_accepted_and_light_commands_still_work() -> None:
         capture_output=True, text=True, timeout=120,
     )
     assert process.returncode == 0
-    lines = [json.loads(l) for l in process.stdout.splitlines() if l.strip()]
+    lines = [
+        json.loads(line) for line in process.stdout.splitlines() if line.strip()
+    ]
     assert any(e["request_id"] == "p" and e["event"] == "completed" for e in lines)
 
 
@@ -842,3 +843,68 @@ def test_emitter_is_thread_safe() -> None:
     assert len(lines) == 8 * 50
     for line in lines:
         json.loads(line)  # never a torn line
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _rust_allowed_commands() -> set[str]:
+    """Parse ALLOWED_COMMANDS out of the Rust source.
+
+    Reading the source beats duplicating the list: the two whitelists drifting
+    apart is a silent failure -- the UI sends a command Rust refuses, and the
+    error surfaces as "not allowed" with no hint that the lists disagree.
+    """
+    source = (_repo_root() / "desktop" / "src-tauri" / "src" / "worker.rs").read_text(
+        encoding="utf-8"
+    )
+    # Anchor on `= &[`: the declaration's own `&[&str]` type contains a `[`
+    # too, and starting from that one parses an empty list and passes
+    # vacuously -- the exact way this kind of test usually lies.
+    start = source.index("ALLOWED_COMMANDS")
+    open_bracket = source.index("= &[", start) + len("= &")
+    body = source[open_bracket : source.index("]", open_bracket)]
+    names = set(re.findall(r'"([a-z_]+)"', body))
+    assert names, "could not parse ALLOWED_COMMANDS out of worker.rs"
+    return names
+
+
+def _typescript_commands() -> set[str]:
+    source = (
+        _repo_root() / "desktop" / "src" / "types" / "index.ts"
+    ).read_text(encoding="utf-8")
+    start = source.index("export type WorkerCommand =")
+    body = source[start : source.index(";", start)]
+    return set(re.findall(r'"([a-z_]+)"', body))
+
+
+def test_python_rust_and_typescript_command_lists_agree() -> None:
+    from filesight.worker import HANDLERS
+
+    python_commands = set(HANDLERS)
+    assert _rust_allowed_commands() == python_commands
+    assert _typescript_commands() == python_commands
+
+
+def test_download_ffmpeg_is_reachable_and_reports_failure_as_an_error() -> None:
+    """The command exists and turns a download failure into an error event."""
+    from filesight import ffmpeg_setup
+
+    events = Collector()
+    instance = Worker(emitter=events)
+
+    def explode(**kwargs):
+        raise ffmpeg_setup.FFmpegDownloadError("no network")
+
+    original = ffmpeg_setup.download_ffmpeg
+    ffmpeg_setup.download_ffmpeg = explode  # type: ignore[assignment]
+    try:
+        run(instance, "download_ffmpeg", {"tools": ["ffmpeg"]})
+    finally:
+        ffmpeg_setup.download_ffmpeg = original  # type: ignore[assignment]
+
+    last = events.last()
+    assert last["event"] == "error"
+    assert last["data"]["code"] == "FFMPEG_DOWNLOAD_FAILED"
+    assert "no network" in last["data"]["message"]

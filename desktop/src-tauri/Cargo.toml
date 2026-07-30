@@ -1,8 +1,11 @@
 [package]
 name = "filesight-desktop"
-version = "0.6.0"
+version = "0.6.1"
 description = "FileSight desktop UI"
-authors = ["FileSight"]
+authors = ["Vitaliy Dyachuk <https://spiriturban.github.io/>"]
+homepage = "https://spiriturban.github.io/file-sight/"
+repository = "https://github.com/SpiritUrban/file-sight"
+license = "MIT"
 edition = "2021"
 rust-version = "1.77"
 
@@ -20,6 +23,15 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = "0.4"
+
+# Rule 28: config in tauri.conf.json is not enough. Without the plugin
+# compiled in, an installed copy never learns that a new version exists.
+# Desktop only -- the updater has no mobile implementation.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+# Needed to relaunch into the version that was just installed; on macOS and
+# Linux the updater replaces the bundle but does not restart it.
+tauri-plugin-process = "2"
 
 [features]
 default = ["custom-protocol"]

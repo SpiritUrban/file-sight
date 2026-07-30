@@ -51,6 +51,14 @@ def _directml_available() -> bool:
     return OnnxDirectMlBackend().is_available()
 
 
+def _torch_installed() -> bool:
+    try:
+        import torch  # noqa: F401
+    except Exception:
+        return False
+    return True
+
+
 def _model_pack() -> bool:
     """Is an exported ONNX caption model installed on this machine?"""
     from filesight.inference.onnx_caption import model_is_available
@@ -59,6 +67,12 @@ def _model_pack() -> bool:
 
 
 onnx = pytest.mark.skipif(not _onnx_installed(), reason="onnxruntime not installed")
+# PyTorch is a ~200 MB install and loading BLIP pulls ~1 GB from Hugging Face.
+# The tests that genuinely need it say so, so a lean environment reports
+# "skipped: torch not installed" instead of failing for the wrong reason.
+torch_required = pytest.mark.skipif(
+    not _torch_installed(), reason="torch not installed"
+)
 dml = pytest.mark.skipif(
     not _directml_available(), reason="DirectML provider not available"
 )
@@ -112,6 +126,7 @@ def test_available_backends_lists_all_four() -> None:
     }
 
 
+@torch_required
 def test_available_backends_separate_runtime_from_captioning() -> None:
     rows = {b["backend_id"]: b for b in available_backends()}
     # An ONNX backend may only claim captioning when BOTH its runtime and
@@ -242,6 +257,7 @@ def test_requesting_onnx_is_honoured_when_it_can_caption() -> None:
     assert selection.fallback_occurred is False
 
 
+@torch_required
 def test_pytorch_request_has_no_spurious_fallback() -> None:
     selection = resolve_backend(BACKEND_PYTORCH_CPU)
     assert selection.actual_backend == BACKEND_PYTORCH_CPU
@@ -284,6 +300,7 @@ def test_onnx_backend_refuses_to_caption_without_a_model(monkeypatch) -> None:
 
 @onnx
 @needs_model
+@torch_required
 def test_onnx_cpu_really_captions() -> None:
     from PIL import Image
 
@@ -349,6 +366,7 @@ def test_directml_diagnostics_when_unavailable() -> None:
 
 
 @onnx
+@torch_required
 def test_pytorch_self_test_passes() -> None:
     diag = run_backend_test(BACKEND_PYTORCH_CPU)
     assert diag.self_test_passed is True

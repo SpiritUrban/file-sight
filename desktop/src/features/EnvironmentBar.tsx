@@ -1,3 +1,4 @@
+import { FfmpegDownloadButton } from "@/features/FfmpegSetup";
 import { useAppStore } from "@/stores/appStore";
 import type { WorkerEnvironment } from "@/types";
 
@@ -58,6 +59,8 @@ export function EnvironmentBar() {
         value={environment.ffmpeg.available ? "Ready" : "Not found"}
         ok={environment.ffmpeg.available}
       />
+      {/* Rule 29: where a passive "Not found" would sit, offer the fix. */}
+      {environment.ffmpeg.available ? null : <FfmpegDownloadButton compact />}
       <GpuPill inference={environment.inference} />
     </div>
   );

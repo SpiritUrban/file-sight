@@ -54,7 +54,10 @@ pub fn venv_python(repo_root: &Path) -> PathBuf {
 ///
 /// Returned entries are candidates only; none of them is verified here so
 /// the ordering can be tested without touching the filesystem.
-pub fn candidates(configured: Option<&str>, repo_root: Option<&Path>) -> Vec<(String, PythonSource)> {
+pub fn candidates(
+    configured: Option<&str>,
+    repo_root: Option<&Path>,
+) -> Vec<(String, PythonSource)> {
     let mut out: Vec<(String, PythonSource)> = Vec::new();
 
     if let Some(value) = configured {
@@ -65,7 +68,10 @@ pub fn candidates(configured: Option<&str>, repo_root: Option<&Path>) -> Vec<(St
     }
     if let Some(root) = repo_root {
         let candidate = venv_python(root);
-        out.push((candidate.to_string_lossy().into_owned(), PythonSource::ProjectVenv));
+        out.push((
+            candidate.to_string_lossy().into_owned(),
+            PythonSource::ProjectVenv,
+        ));
     }
     out.push(("python".to_string(), PythonSource::Path));
     if cfg!(windows) {
@@ -124,7 +130,8 @@ pub fn resolve(configured: Option<&str>, repo_root: Option<&Path>) -> PythonInfo
         if source == PythonSource::ProjectVenv && !Path::new(&program).is_file() {
             continue;
         }
-        if source == PythonSource::Settings && program.contains(std::path::MAIN_SEPARATOR)
+        if source == PythonSource::Settings
+            && program.contains(std::path::MAIN_SEPARATOR)
             && !Path::new(&program).is_file()
         {
             last_message = Some(format!("Configured Python not found: {program}"));

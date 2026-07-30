@@ -692,7 +692,6 @@ def cmd_scan(worker: Worker, request_id: str, payload: dict) -> None:
 
     started_at = time.perf_counter()
     completed_count = 0
-    total = len(files)
 
     def on_start(index: int, total_files: int, path: Path) -> None:
         # A preview is generated up front so the UI can show the file it is
@@ -1076,6 +1075,36 @@ def cmd_list_backends(worker: Worker, request_id: str, payload: dict) -> None:
                         {"backends": available_backends()})
 
 
+def cmd_download_ffmpeg(worker: Worker, request_id: str, payload: dict) -> None:
+    """Fetch FFmpeg into the per-user bin directory (the 1-click path).
+
+    The frontend supplies no URL and no destination: both come from
+    ``ffmpeg_setup``, so this command cannot be turned into "download
+    anything to anywhere". The tools land in a directory that
+    ``resolve_tools`` already searches, which is why video support switches
+    on without a restart.
+    """
+    from filesight.ffmpeg_setup import FFmpegDownloadError, download_ffmpeg
+
+    requested = payload.get("tools") or ["ffmpeg", "ffprobe"]
+    emit = worker.emitter.emit
+
+    def report(tool: str, stage: str) -> None:
+        emit(request_id, "progress", {"tool": tool, "stage": stage})
+
+    try:
+        summary = download_ffmpeg(tools=requested, on_progress=report)
+    except FFmpegDownloadError as exc:
+        raise WorkerError("FFMPEG_DOWNLOAD_FAILED", str(exc)) from exc
+
+    # Report the tools through the same probe the rest of the app uses, so a
+    # download that "succeeded" but produced something unusable is visible
+    # here rather than at the next scan.
+    summary["ffmpeg"] = _probe_tool(None, "ffmpeg")
+    summary["ffprobe"] = _probe_tool(None, "ffprobe")
+    emit(request_id, "completed", summary)
+
+
 def cmd_make_thumbnail(worker: Worker, request_id: str, payload: dict) -> None:
     """Create (or reuse) a cached thumbnail. Images use Pillow, videos FFmpeg."""
     from filesight.thumbnails import make_thumbnail
@@ -1113,6 +1142,7 @@ HANDLERS: dict[str, Callable[[Worker, str, dict], None]] = {
     "undo": cmd_undo,
     "regenerate_names": cmd_regenerate_names,
     "make_thumbnail": cmd_make_thumbnail,
+    "download_ffmpeg": cmd_download_ffmpeg,
     "test_backend": cmd_test_backend,
     "benchmark_backend": cmd_benchmark_backend,
     "list_backends": cmd_list_backends,

@@ -47,18 +47,15 @@ def resolve_tools(
 
 
 def _candidate_roots() -> list[Path]:
-    """Places a project-local FFmpeg may sit: the checkout and the cwd."""
-    roots: list[Path] = []
-    # src/filesight/video_probe.py -> <repo root>
-    try:
-        roots.append(Path(__file__).resolve().parents[2])
-    except IndexError:  # pragma: no cover - defensive
-        pass
-    try:
-        roots.append(Path.cwd())
-    except OSError:  # pragma: no cover - defensive
-        pass
-    return roots
+    """Every place a usable FFmpeg may sit, best candidate first.
+
+    The list itself lives in ``ffmpeg_setup`` next to the one-click
+    downloader, so the directory the download writes to and the directory
+    the resolver reads from can never drift apart.
+    """
+    from filesight.ffmpeg_setup import search_roots
+
+    return search_roots()
 
 
 def find_bundled_tool(
@@ -103,10 +100,16 @@ def _resolve_one(name: str, explicit: Optional[str]) -> str:
     found = shutil.which(name)
     if found:
         return found
+    # The example path is built for the running OS: telling a Linux user to
+    # pass `C:\path\to\ffmpeg.exe` is advice they cannot act on.
+    example = (
+        f"C:\\path\\to\\{name}.exe" if os.name == "nt" else f"/usr/local/bin/{name}"
+    )
     raise FFmpegNotFound(
-        f"{name} was not found. Install FFmpeg and add it to PATH, unpack an "
-        f"FFmpeg build into the FileSight folder, or pass "
-        f"--{name}-path C:\\path\\to\\{name}.exe. "
+        f"{name} was not found. In the desktop app use "
+        f"Settings -> \"Download FFmpeg automatically\". From the command line: "
+        f"install FFmpeg and add it to PATH, unpack an FFmpeg build into the "
+        f"FileSight folder, or pass --{name}-path {example}. "
         "See the README section 'Video support' for install steps."
     )
 
