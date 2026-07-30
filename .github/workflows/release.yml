@@ -31,12 +31,15 @@ jobs:
     needs: validate-version
     permissions:
       contents: write
-    # Rule 11: the signing secrets belong to the JOB. Set only on the
-    # tauri-action step, any other step that builds fails with
+    # Rule 11 says the signing secrets must reach every step that builds, not
+    # just the tauri-action step -- otherwise the other one fails with
     # "A public key has been found, but no private key".
-    env:
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+    #
+    # They are deliberately NOT declared here as job-level `env`. A job-level
+    # entry would take precedence over the normalized value the
+    # "Prepare signing key" step writes to $GITHUB_ENV, so the raw secret
+    # would win and the normalization would be silently useless. That step
+    # runs before anything builds, so every later step still sees them.
     strategy:
       fail-fast: false
       matrix:
@@ -84,6 +87,58 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      # The signing key is validated and normalized BEFORE anything is built.
+      #
+      # Paid for by a whole dry run: GitHub's secret field stores exactly what
+      # was pasted, including a trailing newline, and Tauri's base64 decoder
+      # then dies with "Invalid symbol 10, offset 348" -- after a successful
+      # four-minute compile, on all four platforms at once, which reads like a
+      # bundling problem. It cannot be reproduced locally either, because
+      # `$(cat .tauri-key)` strips the newline in a shell.
+      #
+      # Trailing whitespace is therefore stripped here, and the key is checked
+      # for being a *secret* key: pasting `.tauri-key.pub` by mistake is the
+      # other way this fails, and it too would only surface after the compile.
+      # A 5-second error beats a 7-minute one.
+      - name: Prepare signing key
+        shell: bash
+        env:
+          RAW_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          RAW_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -uo pipefail
+          # An unset secret arrives as an empty string, not as an error.
+          if [ -z "${RAW_KEY}" ]; then
+            echo "::error title=Missing signing key::TAURI_SIGNING_PRIVATE_KEY is empty. Add it as a Repository secret (Settings -> Secrets and variables -> Actions), not an Environment secret."
+            exit 1
+          fi
+
+          key=$(printf '%s' "$RAW_KEY" | tr -d '\r\n')
+          password=$(printf '%s' "$RAW_PASSWORD" | tr -d '\r\n')
+
+          # Node rather than `base64 -d`: BSD base64 on macOS spells decode
+          # `-D`, so the portable-looking form is the non-portable one.
+          KEY="$key" node -e '
+            const decoded = Buffer.from(process.env.KEY, "base64").toString("utf8").slice(0, 80);
+            if (decoded.includes("rsign encrypted secret key")) process.exit(0);
+            if (decoded.includes("minisign public key")) process.exit(2);
+            process.exit(3);
+          ' && verdict=ok || verdict=$?
+
+          case "$verdict" in
+            ok) ;;
+            2)
+              echo "::error title=Wrong key in secret::TAURI_SIGNING_PRIVATE_KEY contains the PUBLIC key (.tauri-key.pub). It must hold the entire contents of .tauri-key."
+              exit 1 ;;
+            *)
+              echo "::error title=Unusable signing key::TAURI_SIGNING_PRIVATE_KEY does not decode to a Tauri signing key. Copy the whole .tauri-key file, with nothing added or trimmed."
+              exit 1 ;;
+          esac
+
+          printf 'TAURI_SIGNING_PRIVATE_KEY=%s\n' "$key" >> "$GITHUB_ENV"
+          printf 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD=%s\n' "$password" >> "$GITHUB_ENV"
+          echo "signing key ok: ${#key} base64 characters, password ${#password} characters"
 
       - run: npm ci
         working-directory: desktop

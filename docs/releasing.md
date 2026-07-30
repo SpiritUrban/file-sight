@@ -36,6 +36,20 @@ They must be **Repository** secrets, not Environment secrets: the build job
 has no `environment:`, so environment secrets are simply absent there and
 arrive as empty strings.
 
+> **A trailing newline in the secret breaks the build, and costs a whole
+> run doing it.** GitHub stores exactly what was pasted. Tauri's decoder then
+> reports `failed to decode base64 secret key: Invalid symbol 10, offset 348`
+> — symbol 10 is the newline — and it does so *after* a successful four-minute
+> compile, on every platform at once, which reads like a bundling problem. It
+> cannot be reproduced locally, because `$(cat .tauri-key)` strips the newline
+> in a shell.
+>
+> The `Prepare signing key` step in `release.yml` now strips trailing
+> whitespace and verifies the key is a *secret* key (pasting `.tauri-key.pub`
+> is the other way this fails) before anything is compiled. So a bad paste now
+> fails in five seconds with a message that names the problem. Nothing needs
+> to be re-pasted for this reason alone.
+
 The matching public key is already in `tauri.conf.json`
 (`plugins.updater.pubkey`) and was verified byte-for-byte against
 `.tauri-key.pub`.
