@@ -2,6 +2,7 @@ import { AlertCircle, ArrowDown, ArrowUp } from "lucide-react";
 import { useMemo } from "react";
 
 import { Thumbnail } from "@/components/Thumbnail";
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore, type SortKey } from "@/stores/appStore";
 import type { ScanFileEntry } from "@/types";
 
@@ -27,6 +28,7 @@ function StatusBadge({ status }: { status: ScanFileEntry["status"] }) {
 }
 
 export function MediaTable() {
+  const { t } = useTranslation();
   const report = useAppStore((s) => s.report);
   const selectedPath = useAppStore((s) => s.selectedPath);
   const select = useAppStore((s) => s.select);
@@ -65,15 +67,15 @@ export function MediaTable() {
     <div className="panel flex-1 overflow-auto">
       <table className="w-full border-collapse text-sm">
         <caption className="sr-only">
-          Analyzed media files and their suggested names
+          {t("Analyzed media files and their suggested names")}
         </caption>
         <thead className="sticky top-0 z-10 bg-slate-50 text-left">
           <tr className="border-b border-slate-200">
             <th scope="col" className="w-10 px-2 py-2">
-              <span className="sr-only">Rename enabled</span>
+              <span className="sr-only">{t("Rename enabled")}</span>
             </th>
             <th scope="col" className="w-14 px-2 py-2">
-              <span className="sr-only">Preview</span>
+              <span className="sr-only">{t("Preview")}</span>
             </th>
             {COLUMNS.map((column) => (
               <th
@@ -85,9 +87,9 @@ export function MediaTable() {
                   type="button"
                   className="inline-flex items-center gap-1 hover:text-blue-700"
                   onClick={() => setSort(column.key)}
-                  aria-label={`Sort by ${column.label}`}
+                  aria-label={t("Sort by {column}", { column: t(column.label) })}
                 >
-                  {column.label}
+                  {t(column.label)}
                   {sortKey === column.key ? (
                     sortAsc ? (
                       <ArrowUp className="h-3 w-3" aria-hidden />
@@ -147,7 +149,7 @@ export function MediaTable() {
                         className={`w-full rounded border px-1.5 py-0.5 text-sm ${
                           problem
                             ? "border-red-500 bg-red-50"
-                            : "border-transparent bg-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-white"
+                            : "border-transparent bg-transparent hover:border-slate-300 focus:border-blue-500 focus:bg-surface"
                         }`}
                       />
                       {problem ? (

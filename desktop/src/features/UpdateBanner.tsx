@@ -1,6 +1,7 @@
 import { Download, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { logMessage } from "@/lib/platform";
 
 /**
@@ -24,6 +25,7 @@ interface UpdateInfo {
 }
 
 export function UpdateBanner() {
+  const { t } = useTranslation();
   const [phase, setPhase] = useState<Phase>("idle");
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [dismissed, setDismissed] = useState(false);
@@ -95,14 +97,18 @@ export function UpdateBanner() {
       </span>
       <div className="min-w-0 flex-1">
         <p className="font-medium text-indigo-900">
-          Update available — FileSight {update.version}
+          {t("Update available — FileSight {version}", {
+            version: update.version,
+          })}
         </p>
         {phase === "downloading" ? (
-          <p className="text-indigo-800">Downloading…</p>
+          <p className="text-indigo-800">{t("Downloading…")}</p>
         ) : phase === "installing" ? (
-          <p className="text-indigo-800">Installing…</p>
+          <p className="text-indigo-800">{t("Installing…")}</p>
         ) : phase === "ready" ? (
-          <p className="text-indigo-800">Installed. Restart FileSight to use it.</p>
+          <p className="text-indigo-800">
+            {t("Installed. Restart FileSight to use it.")}
+          </p>
         ) : phase === "failed" ? (
           <p className="break-all font-mono text-xs text-red-700">{detail}</p>
         ) : null}
@@ -120,7 +126,7 @@ export function UpdateBanner() {
           ) : (
             <Download className="h-4 w-4" aria-hidden />
           )}
-          {phase === "failed" ? "Try again" : "Update now"}
+          {phase === "failed" ? t("Try again") : t("Update now")}
         </button>
       ) : null}
 
@@ -128,7 +134,7 @@ export function UpdateBanner() {
         type="button"
         className="btn-secondary shrink-0"
         onClick={() => setDismissed(true)}
-        aria-label="Dismiss update notice"
+        aria-label={t("Dismiss update notice")}
         disabled={busy}
       >
         <X className="h-4 w-4" aria-hidden />

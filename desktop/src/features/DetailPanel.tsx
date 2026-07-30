@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { Thumbnail } from "@/components/Thumbnail";
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { ScanFileEntry } from "@/types";
 
@@ -15,22 +16,23 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 function VideoDetails({ entry }: { entry: ScanFileEntry }) {
+  const { t } = useTranslation();
   const meta = entry.video_metadata;
   const analysis = entry.video_analysis;
   if (!meta) return null;
   return (
     <>
-      <Row label="Duration" value={`${meta.duration_seconds.toFixed(1)} s`} />
+      <Row label={t("Duration")} value={`${meta.duration_seconds.toFixed(1)} s`} />
       <Row
-        label="Resolution"
+        label={t("Resolution")}
         value={meta.width && meta.height ? `${meta.width} × ${meta.height}` : null}
       />
-      <Row label="Codec" value={meta.video_codec} />
-      <Row label="Audio" value={meta.has_audio ? "yes" : "no"} />
+      <Row label={t("Codec")} value={meta.video_codec} />
+      <Row label={t("Audio")} value={meta.has_audio ? t("yes") : t("no")} />
       {analysis ? (
         <>
           <Row
-            label="Frames"
+            label={t("Frames")}
             value={`${analysis.usable_frames} usable of ${analysis.extracted_frames} extracted`}
           />
           {analysis.frames.length > 0 ? (
@@ -57,6 +59,7 @@ function VideoDetails({ entry }: { entry: ScanFileEntry }) {
 }
 
 export function DetailPanel() {
+  const { t } = useTranslation();
   const report = useAppStore((s) => s.report);
   const selectedPath = useAppStore((s) => s.selectedPath);
   const [showTechnical, setShowTechnical] = useState(false);
@@ -74,7 +77,7 @@ export function DetailPanel() {
   return (
     <aside
       className="panel flex w-80 shrink-0 flex-col overflow-auto p-4 text-sm"
-      aria-label="File details"
+      aria-label={t("File details")}
     >
       <div className="mb-3 flex justify-center">
         <Thumbnail entry={entry} size={220} className="rounded-md" />
@@ -83,30 +86,30 @@ export function DetailPanel() {
       <h3 className="mb-2 break-words font-semibold">{entry.original_name}</h3>
 
       <dl className="space-y-0.5">
-        <Row label="Suggested name" value={entry.suggested_name} />
-        <Row label="Caption" value={entry.caption} />
-        <Row label="Media type" value={entry.media_type} />
-        <Row label="Category" value={entry.classification?.category} />
+        <Row label={t("Suggested name")} value={entry.suggested_name} />
+        <Row label={t("Caption")} value={entry.caption} />
+        <Row label={t("Media type")} value={entry.media_type} />
+        <Row label={t("Category")} value={entry.classification?.category} />
         <Row
-          label="Confidence"
+          label={t("Confidence")}
           value={
             entry.classification
               ? `${entry.classification.confidence.toFixed(2)} (rule-based)`
               : null
           }
         />
-        <Row label="Subject" value={entry.features?.subject} />
-        <Row label="Action" value={entry.features?.action} />
-        <Row label="Location" value={entry.features?.location} />
+        <Row label={t("Subject")} value={entry.features?.subject} />
+        <Row label={t("Action")} value={entry.features?.action} />
+        <Row label={t("Location")} value={entry.features?.location} />
         <Row
-          label="Objects"
+          label={t("Objects")}
           value={entry.features?.objects?.length ? entry.features.objects.join(", ") : null}
         />
-        <Row label="Captured" value={entry.captured_at} />
-        <Row label="Date source" value={entry.date_source} />
+        <Row label={t("Captured")} value={entry.captured_at} />
+        <Row label={t("Date source")} value={entry.date_source} />
         <VideoDetails entry={entry} />
         <Row
-          label="Warnings"
+          label={t("Warnings")}
           value={entry.naming?.warnings?.length ? entry.naming.warnings.join(", ") : null}
         />
         {entry.error ? (
@@ -123,13 +126,13 @@ export function DetailPanel() {
         onClick={() => setShowTechnical((value) => !value)}
         aria-expanded={showTechnical}
       >
-        {showTechnical ? "Hide technical details" : "Technical details"}
+        {showTechnical ? t("Hide technical details") : t("Technical details")}
       </button>
       {showTechnical ? (
         <dl className="mt-2 space-y-0.5 text-xs">
-          <Row label="Original path" value={entry.original_path} />
-          <Row label="Template" value={entry.naming?.template} />
-          <Row label="Profile" value={entry.naming?.profile} />
+          <Row label={t("Original path")} value={entry.original_path} />
+          <Row label={t("Template")} value={entry.naming?.template} />
+          <Row label={t("Profile")} value={entry.naming?.profile} />
           <Row
             label="Matched rules"
             value={entry.classification?.matched_rules?.join(", ")}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore } from "@/stores/appStore";
 
 function elapsed(startedAt: number | null): string {
@@ -9,6 +10,7 @@ function elapsed(startedAt: number | null): string {
 }
 
 export function ProgressBar() {
+  const { t } = useTranslation();
   const progress = useAppStore((s) => s.progress);
   const uiState = useAppStore((s) => s.uiState);
   const [, tick] = useState(0);
@@ -34,7 +36,7 @@ export function ProgressBar() {
     <div className="panel p-3" role="status" aria-live="polite">
       <div className="mb-1.5 flex items-baseline justify-between text-sm">
         <span className="font-medium">
-          {progress.phase || "Working"}
+          {progress.phase ? t(progress.phase) : t("Working")}
           {progress.currentFile ? (
             <span className="ml-2 font-normal text-slate-500">
               {progress.currentFile}
@@ -43,7 +45,7 @@ export function ProgressBar() {
         </span>
         <span className="text-slate-600">
           {indeterminate
-            ? `${elapsed(progress.startedAt)} elapsed`
+            ? t("{elapsed} elapsed", { elapsed: elapsed(progress.startedAt) })
             : `${progress.completed} / ${progress.total} · ${progress.percent.toFixed(0)}% · ${elapsed(progress.startedAt)}`}
         </span>
       </div>
@@ -54,7 +56,7 @@ export function ProgressBar() {
         aria-valuenow={indeterminate ? undefined : Math.round(progress.percent)}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label="Analysis progress"
+        aria-label={t("Analysis progress")}
       >
         <div
           className={`h-full bg-blue-600 ${indeterminate ? "w-1/3 animate-pulse" : ""}`}

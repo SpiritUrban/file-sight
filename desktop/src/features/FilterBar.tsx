@@ -1,6 +1,7 @@
 import { Search } from "lucide-react";
 import { useMemo } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore, type StatusFilter } from "@/stores/appStore";
 
 const FILTERS: Array<{ value: StatusFilter; label: string }> = [
@@ -15,6 +16,7 @@ const FILTERS: Array<{ value: StatusFilter; label: string }> = [
 ];
 
 export function FilterBar() {
+  const { t } = useTranslation();
   const report = useAppStore((s) => s.report);
   const filter = useAppStore((s) => s.filter);
   const setFilter = useAppStore((s) => s.setFilter);
@@ -35,7 +37,7 @@ export function FilterBar() {
 
   return (
     <div className="panel flex flex-wrap items-center gap-2 p-2">
-      <div className="flex flex-wrap gap-1" role="group" aria-label="Filter files">
+      <div className="flex flex-wrap gap-1" role="group" aria-label={t("Filter files")}>
         {FILTERS.map((item) => (
           <button
             key={item.value}
@@ -48,20 +50,20 @@ export function FilterBar() {
                 : "bg-slate-100 text-slate-700 hover:bg-slate-200"
             }`}
           >
-            {item.label}
+            {t(item.label)}
           </button>
         ))}
       </div>
 
       <label className="flex items-center gap-1.5 text-sm">
-        <span className="sr-only">Category</span>
+        <span className="sr-only">{t("Category")}</span>
         <select
           className="field"
           value={categoryFilter}
           onChange={(event) => setCategoryFilter(event.target.value)}
-          aria-label="Filter by category"
+          aria-label={t("Filter by category")}
         >
-          <option value="all">All categories</option>
+          <option value="all">{t("All categories")}</option>
           {categories.map((category) => (
             <option key={category} value={category}>
               {category}
@@ -78,8 +80,8 @@ export function FilterBar() {
         <input
           type="search"
           className="field w-full pl-8"
-          placeholder="Search name, caption or category"
-          aria-label="Search files"
+          placeholder={t("Search name, caption or category")}
+          aria-label={t("Search files")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />

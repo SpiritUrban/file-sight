@@ -3,8 +3,16 @@ import ReactDOM from "react-dom/client";
 
 import App from "@/App";
 import "@/index.css";
+import { initLanguage } from "@/lib/i18n";
+import { applyTheme, initialTheme } from "@/lib/preferences";
 import { TauriWorkerClient } from "@/lib/tauriWorker";
 import { useAppStore } from "@/stores/appStore";
+
+// Before anything renders, and before the client is even built: the theme is
+// a class on <html>, so applying it after mount would show a frame of the
+// light theme on every start.
+applyTheme(initialTheme());
+initLanguage();
 
 // The mock worker is a development aid only; a normal build never uses it.
 async function makeClient() {

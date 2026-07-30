@@ -1,4 +1,5 @@
 import { FfmpegDownloadButton } from "@/features/FfmpegSetup";
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { WorkerEnvironment } from "@/types";
 
@@ -17,13 +18,16 @@ function Pill({ label, value, ok }: { label: string; value: string; ok: boolean 
 }
 
 export function EnvironmentBar() {
+  const { t } = useTranslation();
   const environment = useAppStore((s) => s.environment);
   const uiState = useAppStore((s) => s.uiState);
 
   if (!environment) {
     return (
       <p className="text-xs text-slate-500">
-        {uiState === "environment_check" ? "Checking environment…" : "Environment unknown"}
+        {uiState === "environment_check"
+          ? t("Checking environment…")
+          : t("Environment unknown")}
       </p>
     );
   }
@@ -32,31 +36,31 @@ export function EnvironmentBar() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
       <Pill
-        label="Python"
-        value={environment.python.ok ? environment.python.version : "Not found"}
+        label={t("Python")}
+        value={environment.python.ok ? environment.python.version : t("Not found")}
         ok={environment.python.ok}
       />
       <Pill
-        label="FileSight core"
-        value={environment.filesight.ok ? "Ready" : "Missing"}
+        label={t("FileSight core")}
+        value={environment.filesight.ok ? t("Ready") : t("Missing")}
         ok={environment.filesight.ok}
       />
       <Pill
-        label="Model"
+        label={t("Model")}
         value={
           uiState === "loading_model"
-            ? "Loading…"
+            ? t("Loading…")
             : modelLoaded
-              ? "Loaded"
+              ? t("Loaded")
               : environment.model.cached
-                ? "Not loaded"
-                : "Not downloaded"
+                ? t("Not loaded")
+                : t("Not downloaded")
         }
         ok={modelLoaded || Boolean(environment.model.cached)}
       />
       <Pill
-        label="FFmpeg"
-        value={environment.ffmpeg.available ? "Ready" : "Not found"}
+        label={t("FFmpeg")}
+        value={environment.ffmpeg.available ? t("Ready") : t("Not found")}
         ok={environment.ffmpeg.available}
       />
       {/* Rule 29: where a passive "Not found" would sit, offer the fix. */}
@@ -76,10 +80,11 @@ function GpuPill({
 }: {
   inference: WorkerEnvironment["inference"];
 }) {
+  const { t } = useTranslation();
   if (inference?.cuda_available) {
     return (
       <Pill
-        label="GPU"
+        label={t("GPU")}
         value={`CUDA · ${inference.cuda_device_name ?? "NVIDIA"}`}
         ok
       />
@@ -88,11 +93,11 @@ function GpuPill({
   if (inference?.directml_available) {
     return (
       <Pill
-        label="GPU"
-        value={`DirectML · ${inference.gpu_name ?? "Available"}`}
+        label={t("GPU")}
+        value={`DirectML · ${inference.gpu_name ?? t("Available")}`}
         ok
       />
     );
   }
-  return <Pill label="GPU" value="Not available" ok={false} />;
+  return <Pill label={t("GPU")} value={t("Not available")} ok={false} />;
 }

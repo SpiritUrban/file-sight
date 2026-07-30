@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 
 import { Dialog } from "@/components/Dialog";
+import { AppearanceSettings } from "@/features/AppearanceSettings";
+import { useTranslation } from "@/lib/i18n";
 import { FfmpegDownloadButton } from "@/features/FfmpegSetup";
 import {
   chooseFile,
@@ -56,6 +58,7 @@ function PathField({
   onChange: (value: string | null) => void;
   onBrowse: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <label className="block">
       <span className="mb-1 block text-slate-600">{label}</span>
@@ -64,11 +67,11 @@ function PathField({
           type="text"
           className="field flex-1"
           value={value ?? ""}
-          placeholder="auto-detect"
+          placeholder={t("auto-detect")}
           onChange={(event) => onChange(event.target.value || null)}
         />
         <button type="button" className="btn-secondary" onClick={onBrowse}>
-          Browse
+          {t("Browse")}
         </button>
       </span>
     </label>
@@ -82,6 +85,7 @@ export function SettingsDialog({
   open: boolean;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const client = useAppStore((s) => s.client);
   const refreshEnvironment = useAppStore((s) => s.refreshEnvironment);
   const [settings, setSettings] = useState<AppSettings>(EMPTY);
@@ -110,7 +114,7 @@ export function SettingsDialog({
     setTestError(null);
     setTestResult(null);
     try {
-      if (!client) throw new Error("The worker is not running.");
+      if (!client) throw new Error(t("The worker is not running."));
       const result = (await client.request("get_environment", {
         ffmpeg_path: settings.ffmpeg_path,
         ffprobe_path: settings.ffprobe_path,
@@ -118,7 +122,7 @@ export function SettingsDialog({
       })) as unknown as WorkerEnvironment;
       setTestResult(result);
     } catch (error) {
-      setTestError(error instanceof Error ? error.message : "Environment test failed.");
+      setTestError(error instanceof Error ? error.message : t("Environment test failed."));
     } finally {
       setTesting(false);
     }
@@ -146,7 +150,7 @@ export function SettingsDialog({
         model_id: null,
         self_test_passed: false,
         inference_ms: null,
-        error: error instanceof Error ? error.message : "Backend test failed.",
+        error: error instanceof Error ? error.message : t("Backend test failed."),
         notes: [],
       });
     } finally {
@@ -189,7 +193,7 @@ export function SettingsDialog({
         cold_start_ms: null,
         per_run_ms: [],
         average_ms: null,
-        error: error instanceof Error ? error.message : "Benchmark failed.",
+        error: error instanceof Error ? error.message : t("Benchmark failed."),
       });
     } finally {
       setBackendBusy(null);
@@ -199,12 +203,12 @@ export function SettingsDialog({
   return (
     <Dialog
       open={open}
-      title="Settings"
+      title={t("Settings")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Cancel
+            {t("Cancel")}
           </button>
           <button
             type="button"
@@ -218,14 +222,16 @@ export function SettingsDialog({
               })();
             }}
           >
-            Save settings
+            {t("Save settings")}
           </button>
         </>
       }
     >
       <div className="space-y-3">
+        <AppearanceSettings />
+
         <PathField
-          label="Python executable"
+          label={t("Python executable")}
           value={settings.python_path}
           onChange={(value) => patch({ python_path: value })}
           onBrowse={async () => {
@@ -234,7 +240,7 @@ export function SettingsDialog({
           }}
         />
         <PathField
-          label="FFmpeg executable"
+          label={t("FFmpeg executable")}
           value={settings.ffmpeg_path}
           onChange={(value) => patch({ ffmpeg_path: value })}
           onBrowse={async () => {
@@ -243,7 +249,7 @@ export function SettingsDialog({
           }}
         />
         <PathField
-          label="ffprobe executable"
+          label={t("ffprobe executable")}
           value={settings.ffprobe_path}
           onChange={(value) => patch({ ffprobe_path: value })}
           onBrowse={async () => {
@@ -261,7 +267,7 @@ export function SettingsDialog({
         </div>
 
         <PathField
-          label="Config file (filesight.toml)"
+          label={t("Config file (filesight.toml)")}
           value={settings.config_path}
           onChange={(value) => patch({ config_path: value })}
           onBrowse={async () => {
@@ -271,7 +277,7 @@ export function SettingsDialog({
         />
 
         <label className="block">
-          <span className="mb-1 block text-slate-600">Default profile</span>
+          <span className="mb-1 block text-slate-600">{t("Default profile")}</span>
           <input
             type="text"
             className="field w-full"
@@ -281,7 +287,7 @@ export function SettingsDialog({
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-slate-600">Report filename</span>
+          <span className="mb-1 block text-slate-600">{t("Report filename")}</span>
           <input
             type="text"
             className="field w-full"
@@ -298,7 +304,7 @@ export function SettingsDialog({
               checked={settings.default_recursive}
               onChange={(event) => patch({ default_recursive: event.target.checked })}
             />
-            Recursive by default
+            {t("Recursive by default")}
           </label>
           <label className="flex items-center gap-1.5">
             <input
@@ -309,14 +315,14 @@ export function SettingsDialog({
                 patch({ default_include_videos: event.target.checked })
               }
             />
-            Include videos by default
+            {t("Include videos by default")}
           </label>
         </div>
 
         <div className="border-t border-slate-200 pt-3">
-          <h3 className="mb-2 font-medium">Inference</h3>
+          <h3 className="mb-2 font-medium">{t("Inference")}</h3>
           <label className="block">
-            <span className="mb-1 block text-slate-600">Backend</span>
+            <span className="mb-1 block text-slate-600">{t("Backend")}</span>
             <select
               className="field w-full"
               value={settings.backend}
@@ -324,7 +330,7 @@ export function SettingsDialog({
             >
               {BACKEND_LABELS.map((item) => (
                 <option key={item.value} value={item.value}>
-                  {item.label}
+                  {t(item.label)}
                 </option>
               ))}
             </select>
@@ -336,7 +342,7 @@ export function SettingsDialog({
               checked={settings.allow_fallback}
               onChange={(event) => patch({ allow_fallback: event.target.checked })}
             />
-            Allow automatic fallback
+            {t("Allow automatic fallback")}
           </label>
           <p className="mt-1 text-xs text-slate-500">
             GPU backends need the ONNX model pack installed; without it they
@@ -352,7 +358,7 @@ export function SettingsDialog({
               onClick={() => void runBackendTest()}
               disabled={backendBusy !== null}
             >
-              {backendBusy === "test" ? "Testing…" : "Test backend"}
+              {backendBusy === "test" ? t("Testing…") : t("Test backend")}
             </button>
             <button
               type="button"
@@ -360,26 +366,26 @@ export function SettingsDialog({
               onClick={() => void runBenchmark()}
               disabled={backendBusy !== null}
             >
-              {backendBusy === "bench" ? "Running…" : "Run benchmark"}
+              {backendBusy === "bench" ? t("Running…") : t("Run benchmark")}
             </button>
           </div>
 
           {backendDiag ? (
             <dl className="mt-2 space-y-0.5 rounded border border-slate-200 p-2 text-xs">
               <div className="flex justify-between">
-                <dt>Backend</dt>
+                <dt>{t("Backend")}</dt>
                 <dd>{backendDiag.backend_id}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>Provider</dt>
+                <dt>{t("Provider")}</dt>
                 <dd>{backendDiag.execution_provider ?? "—"}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>Device</dt>
+                <dt>{t("Device")}</dt>
                 <dd>{backendDiag.device_name ?? "—"}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>Self-test</dt>
+                <dt>{t("Self-test")}</dt>
                 <dd
                   className={
                     backendDiag.self_test_passed
@@ -388,13 +394,15 @@ export function SettingsDialog({
                   }
                 >
                   {backendDiag.self_test_passed
-                    ? "Passed"
-                    : `Failed${backendDiag.error ? `: ${backendDiag.error}` : ""}`}
+                    ? t("Passed")
+                    : `${t("Not passed")}${
+                        backendDiag.error ? `: ${backendDiag.error}` : ""
+                      }`}
                 </dd>
               </div>
               {backendDiag.inference_ms !== null ? (
                 <div className="flex justify-between">
-                  <dt>Warm inference</dt>
+                  <dt>{t("Warm inference")}</dt>
                   <dd>{backendDiag.inference_ms} ms</dd>
                 </div>
               ) : null}
@@ -404,7 +412,7 @@ export function SettingsDialog({
           {benchmark ? (
             <dl className="mt-2 space-y-0.5 rounded border border-slate-200 p-2 text-xs">
               <div className="flex justify-between">
-                <dt>Benchmark backend</dt>
+                <dt>{t("Benchmark backend")}</dt>
                 <dd>{benchmark.execution_provider ?? benchmark.backend}</dd>
               </div>
               {benchmark.error ? (
@@ -412,16 +420,16 @@ export function SettingsDialog({
               ) : (
                 <>
                   <div className="flex justify-between">
-                    <dt>Cold start</dt>
+                    <dt>{t("Cold start")}</dt>
                     <dd>{benchmark.cold_start_ms} ms</dd>
                   </div>
                   <div className="flex justify-between">
-                    <dt>Average of {benchmark.runs}</dt>
+                    <dt>{t("Average of {runs}", { runs: benchmark.runs })}</dt>
                     <dd>{benchmark.average_ms} ms</dd>
                   </div>
                   {benchmark.peak_ram_mb ? (
                     <div className="flex justify-between">
-                      <dt>Peak RAM</dt>
+                      <dt>{t("Peak RAM")}</dt>
                       <dd>{benchmark.peak_ram_mb} MB</dd>
                     </div>
                   ) : null}
@@ -439,7 +447,7 @@ export function SettingsDialog({
               onClick={() => void runTest()}
               disabled={testing}
             >
-              {testing ? "Testing…" : "Test environment"}
+              {testing ? t("Testing…") : t("Test environment")}
             </button>
             {logDir ? (
               <button
@@ -447,7 +455,7 @@ export function SettingsDialog({
                 className="btn-secondary"
                 onClick={() => void openPath(logDir)}
               >
-                Open logs folder
+                {t("Open logs folder")}
               </button>
             ) : null}
           </div>
@@ -461,27 +469,30 @@ export function SettingsDialog({
           {testResult ? (
             <dl className="mt-2 space-y-0.5 text-xs">
               <div className="flex justify-between">
-                <dt>Python</dt>
-                <dd>{testResult.python.version} ({testResult.python.ok ? "ok" : "too old"})</dd>
+                <dt>{t("Python")}</dt>
+                <dd>
+                  {testResult.python.version} (
+                  {testResult.python.ok ? t("ok") : t("too old")})
+                </dd>
               </div>
               <div className="flex justify-between">
-                <dt>FileSight core</dt>
+                <dt>{t("FileSight core")}</dt>
                 <dd>{testResult.filesight.version}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>FFmpeg</dt>
-                <dd>{testResult.ffmpeg.available ? "ready" : "not found"}</dd>
+                <dt>{t("FFmpeg")}</dt>
+                <dd>{testResult.ffmpeg.available ? t("ready") : t("not found")}</dd>
               </div>
               <div className="flex justify-between">
                 <dt>ffprobe</dt>
-                <dd>{testResult.ffprobe.available ? "ready" : "not found"}</dd>
+                <dd>{testResult.ffprobe.available ? t("ready") : t("not found")}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>Model cache</dt>
-                <dd>{testResult.model.cached ? "present" : "empty"}</dd>
+                <dt>{t("Model cache")}</dt>
+                <dd>{testResult.model.cached ? t("present") : t("empty")}</dd>
               </div>
               <div className="flex justify-between">
-                <dt>Config</dt>
+                <dt>{t("Config")}</dt>
                 <dd>{testResult.config.ok ? testResult.config.source : testResult.config.message}</dd>
               </div>
             </dl>
@@ -500,6 +511,7 @@ export function SettingsDialog({
  * The version is read from the bundle, never written down (rule 18).
  */
 function AboutSection() {
+  const { t } = useTranslation();
   const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -508,18 +520,18 @@ function AboutSection() {
 
   return (
     <div className="border-t border-slate-200 pt-3">
-      <h3 className="mb-2 font-medium">About</h3>
+      <h3 className="mb-2 font-medium">{t("About")}</h3>
       <dl className="space-y-0.5 text-xs">
         <div className="flex justify-between">
           <dt className="text-slate-600">{PRODUCT_METADATA.productName}</dt>
           <dd>{version ?? "—"}</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-slate-600">Author</dt>
+          <dt className="text-slate-600">{t("Author")}</dt>
           <dd>{PRODUCT_METADATA.author}</dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-slate-600">License</dt>
+          <dt className="text-slate-600">{t("License")}</dt>
           <dd>{PRODUCT_METADATA.license}</dd>
         </div>
       </dl>
@@ -529,14 +541,14 @@ function AboutSection() {
           className="btn-secondary"
           onClick={() => void openExternal(PRODUCT_METADATA.authorUrl)}
         >
-          More projects and services
+          {t("More projects and services")}
         </button>
         <button
           type="button"
           className="btn-secondary"
           onClick={() => void openExternal(PRODUCT_METADATA.repositoryUrl)}
         >
-          Source code
+          {t("Source code")}
         </button>
       </div>
     </div>

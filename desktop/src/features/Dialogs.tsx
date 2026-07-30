@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
 
 import { Dialog } from "@/components/Dialog";
+import { useTranslation } from "@/lib/i18n";
 import type {
   RenamePlan,
   RenameResult,
@@ -17,14 +18,15 @@ export function ValidationDialog({
   onClose: () => void;
   onSelectIssue: (entryIndex: number | null) => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={result !== null}
-      title="Validation"
+      title={t("Validation")}
       onClose={onClose}
       footer={
         <button type="button" className="btn-primary" onClick={onClose}>
-          Close
+          {t("Close")}
         </button>
       }
     >
@@ -52,7 +54,7 @@ export function ValidationDialog({
           {result.errors.length === 0 && result.warnings.length === 0 ? (
             <p className="flex items-center gap-2 text-emerald-700">
               <CheckCircle2 className="h-4 w-4" aria-hidden />
-              The report is valid.
+              {t("The report is valid.")}
             </p>
           ) : null}
 
@@ -96,18 +98,19 @@ export function DryRunDialog({
   onClose: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation();
   const renames = plan?.items.filter((item) => item.action === "rename") ?? [];
   const skips = plan?.items.filter((item) => item.action === "skip") ?? [];
   return (
     <Dialog
       open={plan !== null}
-      title="Dry run — nothing has been changed"
+      title={t("Dry run — nothing has been changed")}
       onClose={onClose}
       width="max-w-3xl"
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Close
+            {t("Close")}
           </button>
           <button
             type="button"
@@ -115,7 +118,7 @@ export function DryRunDialog({
             onClick={onConfirm}
             disabled={!plan?.valid || renames.length === 0}
           >
-            Continue to rename
+            {t("Continue to rename")}
           </button>
         </>
       }
@@ -169,15 +172,16 @@ export function ConfirmRenameDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog
       open={open}
-      title="Rename files"
+      title={t("Rename files")}
       onClose={onCancel}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onCancel}>
-            Cancel
+            {t("Cancel")}
           </button>
           {/* Explicit label, never a bare "OK" for a destructive action. */}
           <button type="button" className="btn-primary" onClick={onConfirm}>
@@ -209,6 +213,7 @@ export function RenameResultDialog({
   onOpenFolder: () => void;
   onOpenLog: () => void;
 }) {
+  const { t } = useTranslation();
   if (!result) return null;
   const clean = result.status === "completed";
   const partial =
@@ -217,23 +222,23 @@ export function RenameResultDialog({
   return (
     <Dialog
       open
-      title={clean ? "Rename completed" : "Rename did not complete safely"}
+      title={clean ? t("Rename completed") : t("Rename did not complete safely")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onOpenFolder}>
-            Open folder
+            {t("Open folder")}
           </button>
           <button type="button" className="btn-secondary" onClick={onOpenLog}>
-            Open log location
+            {t("Open log location")}
           </button>
           {clean ? (
             <button type="button" className="btn-secondary" onClick={onUndo}>
-              Undo
+              {t("Undo")}
             </button>
           ) : null}
           <button type="button" className="btn-primary" onClick={onClose}>
-            Close
+            {t("Close")}
           </button>
         </>
       }
@@ -292,6 +297,7 @@ export function UndoDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useTranslation();
   const operations = (preview?.operations ?? []) as Array<{
     from?: string;
     to?: string;
@@ -302,12 +308,12 @@ export function UndoDialog({
   return (
     <Dialog
       open={open}
-      title="Undo last rename"
+      title={t("Undo last rename")}
       onClose={onCancel}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onCancel}>
-            Cancel
+            {t("Cancel")}
           </button>
           <button
             type="button"

@@ -1,6 +1,7 @@
 import { FolderOpen, Play, Settings, X } from "lucide-react";
 
 import { AuthorLink } from "@/features/AuthorLink";
+import { useTranslation } from "@/lib/i18n";
 import { isBusy, useAppStore } from "@/stores/appStore";
 
 interface ToolbarProps {
@@ -9,6 +10,7 @@ interface ToolbarProps {
 }
 
 export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
+  const { t } = useTranslation();
   const options = useAppStore((s) => s.options);
   const setOptions = useAppStore((s) => s.setOptions);
   const profiles = useAppStore((s) => s.profiles);
@@ -32,13 +34,13 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
           disabled={busy}
         >
           <FolderOpen className="h-4 w-4" aria-hidden />
-          Choose folder
+          {t("Choose folder")}
         </button>
         <span
           className="min-w-0 flex-1 truncate text-sm text-slate-600"
           title={options.directory}
         >
-          {options.directory || "No folder selected"}
+          {options.directory || t("No folder selected")}
         </span>
 
         {scanning || uiState === "cancelling" ? (
@@ -49,7 +51,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
             disabled={uiState === "cancelling"}
           >
             <X className="h-4 w-4" aria-hidden />
-            {uiState === "cancelling" ? "Cancelling…" : "Cancel"}
+            {uiState === "cancelling" ? t("Cancelling…") : t("Cancel")}
           </button>
         ) : (
           <button
@@ -59,7 +61,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
             disabled={!canStart}
           >
             <Play className="h-4 w-4" aria-hidden />
-            Start analysis
+            {t("Start analysis")}
           </button>
         )}
 
@@ -67,7 +69,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
           type="button"
           className="btn-secondary"
           onClick={onOpenSettings}
-          aria-label="Settings"
+          aria-label={t("Settings")}
         >
           <Settings className="h-4 w-4" aria-hidden />
         </button>
@@ -79,7 +81,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
 
       <div className="flex flex-wrap items-center gap-4 text-sm">
         <label className="flex items-center gap-1.5">
-          <span className="text-slate-600">Profile</span>
+          <span className="text-slate-600">{t("Profile")}</span>
           <select
             className="field"
             value={options.profile}
@@ -106,7 +108,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
             disabled={busy}
             onChange={(event) => setOptions({ includeImages: event.target.checked })}
           />
-          Images
+          {t("Images")}
         </label>
 
         <label className="flex items-center gap-1.5">
@@ -117,7 +119,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
             disabled={busy}
             onChange={(event) => setOptions({ includeVideos: event.target.checked })}
           />
-          Videos
+          {t("Videos")}
         </label>
 
         <label className="flex items-center gap-1.5">
@@ -128,18 +130,18 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
             disabled={busy}
             onChange={(event) => setOptions({ recursive: event.target.checked })}
           />
-          Recursive
+          {t("Recursive")}
         </label>
 
         <label className="flex items-center gap-1.5">
-          <span className="text-slate-600">Max files</span>
+          <span className="text-slate-600">{t("Max files")}</span>
           <input
             type="number"
             min={1}
             className="field w-20"
             disabled={busy}
             value={options.maxFiles ?? ""}
-            placeholder="all"
+            placeholder={t("all")}
             onChange={(event) =>
               setOptions({
                 maxFiles: event.target.value ? Number(event.target.value) : null,
@@ -150,7 +152,7 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
 
         {options.includeVideos ? (
           <label className="flex items-center gap-1.5">
-            <span className="text-slate-600">Frames/video</span>
+            <span className="text-slate-600">{t("Frames/video")}</span>
             <input
               type="number"
               min={1}

@@ -1,6 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 import { vi } from "vitest";
 
+// The interface language is detected from the browser on first run, and the
+// machine this suite runs on decides what that is. Pinning it to English
+// keeps the assertions about visible text meaningful instead of dependent on
+// the developer's system locale; the Ukrainian strings have their own tests.
+window.localStorage.setItem("filesight.language", "en");
+
 // jsdom has no IntersectionObserver; thumbnails use it for lazy loading.
 class MockIntersectionObserver implements IntersectionObserver {
   readonly root = null;

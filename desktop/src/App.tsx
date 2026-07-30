@@ -18,6 +18,7 @@ import { ProgressBar } from "@/features/ProgressBar";
 import { SettingsDialog } from "@/features/SettingsDialog";
 import { Toolbar } from "@/features/Toolbar";
 import { UpdateBanner } from "@/features/UpdateBanner";
+import { t as translate, useTranslation } from "@/lib/i18n";
 import { chooseDirectory, openExternal, openPath, revealPath } from "@/lib/platform";
 import { PRODUCT_METADATA } from "@/lib/productMetadata";
 import { isBusy, isFileOperation, useAppStore } from "@/stores/appStore";
@@ -38,27 +39,28 @@ function isRescannable(issues: ValidationIssue[]): boolean {
 function fixHint(issues: ValidationIssue[]): string {
   const codes = new Set(issues.map((issue) => issue.code));
   if (codes.has("SOURCE_MODIFIED")) {
-    return "These files changed on disk after the analysis. Run the analysis again.";
+    return translate("These files changed on disk after the analysis. Run the analysis again.");
   }
   if (codes.has("SOURCE_MISSING")) {
-    return "These files no longer exist. Run the analysis again.";
+    return translate("These files no longer exist. Run the analysis again.");
   }
   if (codes.has("TARGET_ALREADY_EXISTS")) {
-    return "Another file already uses that name. Edit the suggested name, or turn that file off.";
+    return translate("Another file already uses that name. Edit the suggested name, or turn that file off.");
   }
   if (codes.has("DUPLICATE_TARGET")) {
-    return "Two files would get the same name. Edit one of them.";
+    return translate("Two files would get the same name. Edit one of them.");
   }
   if (codes.has("EXTENSION_CHANGED")) {
-    return "The extension must stay the same as the original file.";
+    return translate("The extension must stay the same as the original file.");
   }
   if (codes.has("INVALID_NAME") || codes.has("RESERVED_NAME") || codes.has("NAME_IS_PATH")) {
-    return "Fix the highlighted names in the table.";
+    return translate("Fix the highlighted names in the table.");
   }
-  return "Use Validate to review every problem.";
+  return translate("Use Validate to review every problem.");
 }
 
 export default function App() {
+  const { t } = useTranslation();
   const uiState = useAppStore((s) => s.uiState);
   const report = useAppStore((s) => s.report);
   const dirty = useAppStore((s) => s.dirty);
@@ -174,7 +176,7 @@ export default function App() {
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" aria-hidden />
           <div className="min-w-0 flex-1">
             <p className="font-medium text-red-900">{errorMessage}</p>
-            <p className="text-red-800">No files were changed.</p>
+            <p className="text-red-800">{t("No files were changed.")}</p>
             {errorIssues.length > 0 ? (
               <>
                 <ul className="mt-2 space-y-1">
@@ -193,7 +195,9 @@ export default function App() {
                 </ul>
                 {errorIssues.length > 8 ? (
                   <p className="mt-1 text-xs text-red-700">
-                    …and {errorIssues.length - 8} more. Use Validate to see them all.
+                    {t("…and {count} more. Use Validate to see them all.", {
+                      count: errorIssues.length - 8,
+                    })}
                   </p>
                 ) : null}
                 <p className="mt-2 text-red-800">{fixHint(errorIssues)}</p>
@@ -213,11 +217,11 @@ export default function App() {
                 }}
                 disabled={busy}
               >
-                Run analysis again
+                {t("Run analysis again")}
               </button>
             ) : null}
             <button type="button" className="btn-secondary" onClick={clearError}>
-              Dismiss
+              {t("Dismiss")}
             </button>
           </div>
         </div>
@@ -229,19 +233,19 @@ export default function App() {
         <div className="panel flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
           <FolderOpen className="h-10 w-10 text-slate-400" aria-hidden />
           <h2 className="text-base font-medium">
-            Choose a folder with images or short videos.
+            {t("Choose a folder with images or short videos.")}
           </h2>
           <p className="max-w-md text-sm text-slate-600">
-            FileSight analyzes files locally. Nothing is uploaded. The first
-            analysis may download an AI model. No file is renamed until you
-            confirm the plan.
+            {t(
+              "FileSight analyzes files locally. Nothing is uploaded. The first analysis may download an AI model. No file is renamed until you confirm the plan.",
+            )}
           </p>
           <button type="button" className="btn-primary" onClick={onChooseFolder}>
-            Choose folder
+            {t("Choose folder")}
           </button>
           {/* Seen once, before any work starts: one quiet line, no banner. */}
           <p className="text-[11px] text-slate-400">
-            Built by{" "}
+            {t("Built by")}{" "}
             <button
               type="button"
               className="underline decoration-dotted hover:text-slate-600"
@@ -263,20 +267,25 @@ export default function App() {
             {dirty ? (
               <span className="flex items-center gap-1 text-sm text-amber-700">
                 <AlertTriangle className="h-4 w-4" aria-hidden />
-                Unsaved changes
+                {t("Unsaved changes")}
               </span>
             ) : (
-              <span className="text-sm text-slate-500">Saved</span>
+              <span className="text-sm text-slate-500">{t("Saved")}</span>
             )}
             <span className="text-sm text-slate-500">
-              {enabledCount} of {report.files.length} selected for rename
+              {t("{enabled} of {total} selected for rename", {
+                enabled: enabledCount,
+                total: report.files.length,
+              })}
             </span>
             {report.inference ? (
               <span
                 className="text-sm text-slate-500"
                 title={report.inference.fallback_reason ?? undefined}
               >
-                · Inference: {report.inference.actual_backend}
+                {t("· Inference: {backend}", {
+                  backend: report.inference.actual_backend,
+                })}
                 {report.inference.device_name
                   ? ` (${report.inference.device_name})`
                   : ""}
@@ -291,7 +300,7 @@ export default function App() {
               disabled={!dirty || busy}
             >
               <Save className="h-4 w-4" aria-hidden />
-              Save report
+              {t("Save report")}
             </button>
             <button
               type="button"
@@ -300,7 +309,7 @@ export default function App() {
               disabled={busy}
             >
               <ShieldCheck className="h-4 w-4" aria-hidden />
-              Validate
+              {t("Validate")}
             </button>
             <button
               type="button"
@@ -308,7 +317,7 @@ export default function App() {
               onClick={() => void runDryRun()}
               disabled={busy}
             >
-              Dry run
+              {t("Dry run")}
             </button>
             <button
               type="button"
@@ -317,13 +326,13 @@ export default function App() {
               disabled={!canRename}
               title={
                 hasNameErrors
-                  ? "Fix the highlighted names first"
+                  ? t("Fix the highlighted names first")
                   : enabledCount === 0
-                    ? "Enable at least one file"
+                    ? t("Enable at least one file")
                     : undefined
               }
             >
-              Rename files
+              {t("Rename files")}
             </button>
             <button
               type="button"
@@ -331,7 +340,7 @@ export default function App() {
               onClick={() => void openUndo()}
               disabled={!logPath || busy}
             >
-              Undo last rename
+              {t("Undo last rename")}
             </button>
           </footer>
         </>
@@ -388,7 +397,7 @@ export default function App() {
 
       <Dialog
         open={showOnboarding}
-        title="Welcome to FileSight"
+        title={t("Welcome to FileSight")}
         onClose={() => setShowOnboarding(false)}
         footer={
           <button
@@ -399,15 +408,19 @@ export default function App() {
               setShowOnboarding(false);
             }}
           >
-            Continue
+            {t("Continue")}
           </button>
         }
       >
-        <p className="mb-2">FileSight analyzes files locally.</p>
+        <p className="mb-2">{t("FileSight analyzes files locally.")}</p>
         <ul className="list-inside list-disc space-y-1 text-slate-700">
-          <li>The first analysis may download an AI model.</li>
-          <li>The model and Python dependencies can use several gigabytes of disk space.</li>
-          <li>No file is renamed until you confirm the rename plan.</li>
+          <li>{t("The first analysis may download an AI model.")}</li>
+          <li>
+            {t(
+              "The model and Python dependencies can use several gigabytes of disk space.",
+            )}
+          </li>
+          <li>{t("No file is renamed until you confirm the rename plan.")}</li>
         </ul>
       </Dialog>
     </div>

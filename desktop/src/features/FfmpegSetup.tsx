@@ -1,6 +1,7 @@
 import { Download, Loader2 } from "lucide-react";
 import { useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore } from "@/stores/appStore";
 
 /**
@@ -16,6 +17,7 @@ import { useAppStore } from "@/stores/appStore";
  * `download_ffmpeg` command, and Rust and Python decide the rest.
  */
 export function FfmpegDownloadButton({ compact = false }: { compact?: boolean }) {
+  const { t } = useTranslation();
   const client = useAppStore((s) => s.client);
   const refreshEnvironment = useAppStore((s) => s.refreshEnvironment);
   const [stage, setStage] = useState<string | null>(null);
@@ -26,7 +28,7 @@ export function FfmpegDownloadButton({ compact = false }: { compact?: boolean })
 
   const run = async () => {
     if (!client) {
-      setError("The analysis worker is not running yet.");
+      setError(t("The analysis worker is not running yet."));
       return;
     }
     setError(null);
@@ -39,7 +41,9 @@ export function FfmpegDownloadButton({ compact = false }: { compact?: boolean })
         (event) => {
           if (event.event === "progress") {
             const data = event.data as { tool?: string; stage?: string };
-            setStage(`${data.stage ?? "working"} ${data.tool ?? ""}`.trim());
+            setStage(
+              `${t(data.stage ?? "working")} ${data.tool ?? ""}`.trim(),
+            );
           }
         },
       )) as { directory?: string; version?: string };
@@ -47,7 +51,7 @@ export function FfmpegDownloadButton({ compact = false }: { compact?: boolean })
       // The environment pill must stop saying "Not found" immediately.
       await refreshEnvironment();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The download failed.");
+      setError(caught instanceof Error ? caught.message : t("The download failed."));
     } finally {
       setStage(null);
     }
@@ -60,14 +64,16 @@ export function FfmpegDownloadButton({ compact = false }: { compact?: boolean })
         className={compact ? "btn-secondary !py-0.5 !text-xs" : "btn-secondary"}
         onClick={() => void run()}
         disabled={busy}
-        title="Downloads a static FFmpeg build into FileSight's own folder. Nothing else on the system is changed."
+        title={t(
+          "Downloads a static FFmpeg build into FileSight's own folder. Nothing else on the system is changed.",
+        )}
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         ) : (
           <Download className="h-4 w-4" aria-hidden />
         )}
-        {busy ? `${stage}…` : "Download FFmpeg automatically"}
+        {busy ? `${stage}…` : t("Download FFmpeg automatically")}
       </button>
 
       {error ? (
@@ -77,11 +83,11 @@ export function FfmpegDownloadButton({ compact = false }: { compact?: boolean })
       ) : null}
       {done && !compact ? (
         <span className="ml-2 break-all text-xs text-emerald-700">
-          Installed in {done}
+          {t("Installed in {directory}", { directory: done })}
         </span>
       ) : null}
       {done && compact ? (
-        <span className="text-xs text-emerald-700">Installed</span>
+        <span className="text-xs text-emerald-700">{t("Installed")}</span>
       ) : null}
     </span>
   );

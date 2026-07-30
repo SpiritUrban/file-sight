@@ -2,8 +2,114 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Two themes, one set of markup. The components keep using `text-slate-500`,
+ * `bg-red-50` and so on; only the meaning of those numbers changes here.
+ *
+ * In dark mode the neutral ramp is inverted: the low shades, which the UI uses
+ * for surfaces and borders, become dark; the high shades, which it uses for
+ * text, become light. The accent ramps are not inverted but re-tuned, because
+ * a saturated `red-700` that reads as an urgent label on white becomes an
+ * unreadable smear on a dark panel.
+ *
+ * Values are bare `R G B` channels so Tailwind's `/50` opacity syntax works.
+ */
 :root {
   color-scheme: light;
+
+  --c-surface: 255 255 255;
+  --c-surface-raised: 255 255 255;
+
+  --c-slate-50: 248 250 252;
+  --c-slate-100: 241 245 249;
+  --c-slate-200: 226 232 240;
+  --c-slate-300: 203 213 225;
+  --c-slate-400: 148 163 184;
+  --c-slate-500: 100 116 139;
+  --c-slate-600: 71 85 105;
+  --c-slate-700: 51 65 85;
+  --c-slate-800: 30 41 59;
+  --c-slate-900: 15 23 42;
+
+  --c-red-50: 254 242 242;
+  --c-red-200: 254 202 202;
+  --c-red-300: 252 165 165;
+  --c-red-500: 239 68 68;
+  --c-red-600: 220 38 38;
+  --c-red-700: 185 28 28;
+  --c-red-800: 153 27 27;
+  --c-red-900: 127 29 29;
+
+  --c-amber-300: 252 211 77;
+  --c-amber-500: 245 158 11;
+  --c-amber-700: 180 83 9;
+  --c-amber-800: 146 64 14;
+  --c-amber-900: 120 53 15;
+
+  --c-emerald-500: 16 185 129;
+  --c-emerald-700: 4 120 87;
+  --c-emerald-800: 6 95 70;
+
+  --c-indigo-200: 199 210 254;
+  --c-indigo-400: 129 140 248;
+  --c-indigo-500: 99 102 241;
+  --c-indigo-800: 55 48 163;
+  --c-indigo-900: 49 46 129;
+
+  --c-blue-500: 59 130 246;
+  --c-blue-600: 37 99 235;
+  --c-blue-700: 29 78 216;
+  --c-blue-800: 30 64 175;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --c-surface: 19 28 49;
+  --c-surface-raised: 24 34 58;
+
+  /* Inverted: 50 is now the darkest surface, 900 the brightest text. */
+  --c-slate-50: 17 25 44;
+  --c-slate-100: 11 17 32;
+  --c-slate-200: 36 49 77;
+  --c-slate-300: 51 68 102;
+  --c-slate-400: 109 125 153;
+  --c-slate-500: 148 163 184;
+  --c-slate-600: 166 179 204;
+  --c-slate-700: 203 213 225;
+  --c-slate-800: 226 232 240;
+  --c-slate-900: 232 237 247;
+
+  /* Accents: dark, low-saturation surfaces; light, legible text. */
+  --c-red-50: 60 20 28;
+  --c-red-200: 120 40 50;
+  --c-red-300: 153 55 65;
+  --c-red-500: 248 113 113;
+  --c-red-600: 220 38 38;
+  --c-red-700: 252 165 165;
+  --c-red-800: 254 202 202;
+  --c-red-900: 254 226 226;
+
+  --c-amber-300: 146 96 26;
+  --c-amber-500: 251 191 36;
+  --c-amber-700: 252 211 77;
+  --c-amber-800: 253 230 138;
+  --c-amber-900: 254 243 199;
+
+  --c-emerald-500: 52 211 153;
+  --c-emerald-700: 110 231 183;
+  --c-emerald-800: 167 243 208;
+
+  --c-indigo-200: 61 63 122;
+  --c-indigo-400: 139 139 247;
+  --c-indigo-500: 129 140 248;
+  --c-indigo-800: 199 210 254;
+  --c-indigo-900: 224 231 255;
+
+  --c-blue-500: 96 165 250;
+  --c-blue-600: 79 116 233;
+  --c-blue-700: 99 132 240;
+  --c-blue-800: 191 219 254;
 }
 
 body {
@@ -16,7 +122,10 @@ body {
 /* Focus must always be visible for keyboard users. */
 @layer base {
   :focus-visible {
-    @apply outline-none ring-2 ring-blue-600 ring-offset-1 ring-offset-white;
+    @apply outline-none ring-2 ring-blue-600 ring-offset-1;
+    /* Offset against the surface behind the control rather than a fixed
+       white, or the ring sits in a bright halo on the dark theme. */
+    --tw-ring-offset-color: rgb(var(--c-surface));
   }
 }
 
@@ -29,16 +138,23 @@ body {
     @apply btn bg-blue-600 text-white hover:bg-blue-700 disabled:hover:bg-blue-600;
   }
   .btn-secondary {
-    @apply btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-50;
+    @apply btn border border-slate-300 bg-surface text-slate-700 hover:bg-slate-50;
   }
   .btn-danger {
     @apply btn bg-red-600 text-white hover:bg-red-700;
   }
   .field {
-    @apply rounded-md border border-slate-300 bg-white px-2 py-1 text-sm
-           focus:border-blue-500;
+    @apply rounded-md border border-slate-300 bg-surface px-2 py-1 text-sm
+           text-slate-900 focus:border-blue-500;
   }
   .panel {
-    @apply rounded-lg border border-slate-200 bg-white;
+    @apply rounded-lg border border-slate-200 bg-surface-raised;
   }
+}
+
+/* A select's popup list is drawn by the OS, which does not read our
+   variables; without this it stays white on white in the dark theme. */
+.dark select option {
+  background-color: rgb(var(--c-surface-raised));
+  color: rgb(var(--c-slate-900));
 }

@@ -1,6 +1,7 @@
 import { CheckCircle2, Film, ImageIcon, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { useAppStore, type LiveResult } from "@/stores/appStore";
 
 /** Local paths must be converted before a webview may load them. */
@@ -56,6 +57,7 @@ function ResultLine({ result }: { result: LiveResult }) {
  * determined. Replaces the empty screen so the app never looks frozen.
  */
 export function LiveStage() {
+  const { t } = useTranslation();
   const progress = useAppStore((s) => s.progress);
   const uiState = useAppStore((s) => s.uiState);
   const previewUrl = useAssetUrl(progress.currentThumbnail);
@@ -70,14 +72,14 @@ export function LiveStage() {
   return (
     <section
       className="panel flex min-h-0 flex-1 flex-col items-center justify-center gap-4 p-6"
-      aria-label="Analysis in progress"
+      aria-label={t("Analysis in progress")}
     >
       {loadingModel ? (
         <div className="text-center">
           <div
             className="mx-auto mb-3 h-2 w-56 overflow-hidden rounded bg-slate-200"
             role="progressbar"
-            aria-label="Loading the model"
+            aria-label={t("Loading the model")}
           >
             <div className="h-full w-1/3 animate-pulse rounded bg-blue-600" />
           </div>
@@ -105,7 +107,7 @@ export function LiveStage() {
 
           <div className="w-full max-w-xl text-center">
             <p className="truncate font-medium" title={progress.currentFile ?? ""}>
-              {progress.currentFile ?? "Preparing…"}
+              {progress.currentFile ?? t("Preparing…")}
             </p>
             <p className="text-sm text-slate-500">
               File {progress.currentIndex || progress.completed} of {progress.total}
@@ -116,7 +118,7 @@ export function LiveStage() {
             <div
               className="mx-auto mt-3 h-1.5 w-full overflow-hidden rounded bg-slate-200"
               role="progressbar"
-              aria-label="Current file progress"
+              aria-label={t("Current file progress")}
               aria-valuenow={hasStep ? stepPercent : undefined}
               aria-valuemin={0}
               aria-valuemax={100}
@@ -130,8 +132,8 @@ export function LiveStage() {
               {progress.stepLabel
                 ? `${progress.stepLabel} ${progress.stepCurrent}/${progress.stepTotal}`
                 : uiState === "cancelling"
-                  ? "Cancelling…"
-                  : "Analyzing…"}
+                  ? t("Cancelling…")
+                  : t("Analyzing…")}
             </p>
 
             {/* Values appear as soon as the file is done */}
