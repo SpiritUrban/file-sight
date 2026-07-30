@@ -58,7 +58,7 @@
       <h1>FileSight</h1>
       <p class="hero__tagline">
         Your photos and clips get names you can read — and it all happens on
-        your own machine.
+        your own machine. On Windows, the installer contains everything.
       </p>
       <p class="hero__version" id="version-line" aria-live="polite">
         Loading release information…
@@ -166,25 +166,33 @@
       </section>
 
       <section class="requirements">
-        <h2>Before you install — read this</h2>
+        <h2>Install and run — nothing else to set up</h2>
         <p>
-          FileSight's analysis engine is a Python program, and the desktop app
-          runs it. The installer does <strong>not</strong> yet bundle Python, so
-          the app needs <strong>Python 3.11 or newer</strong> plus the FileSight
-          core installed from the repository. The
-          <a href="https://github.com/SpiritUrban/file-sight#встановлення" rel="noopener"
+          <strong>On Windows the installer is self-contained.</strong> The
+          analysis engine ships inside it, so there is no Python to install, no
+          PATH to edit and no commands to run. Download, install, choose a
+          folder. The first analysis downloads the vision model once (about
+          1&nbsp;GB) and caches it; everything after that works offline.
+        </p>
+        <p>
+          Video support needs FFmpeg, and that is one click too: the app offers
+          to fetch it into its own folder, without touching anything else on the
+          system.
+        </p>
+        <p>
+          Updates are built in — an installed copy notices a new release and
+          offers to install it.
+        </p>
+        <p class="requirements__caveat">
+          <strong>macOS and Linux builds are not self-contained yet.</strong>
+          They still need <strong>Python 3.11+</strong> with the FileSight core
+          installed — the
+          <a href="https://github.com/SpiritUrban/file-sight" rel="noopener"
             >README</a
           >
-          has the two commands.
-        </p>
-        <p>
-          Video support needs FFmpeg, and that part <em>is</em> one click:
-          the app offers to download it into its own folder, with no PATH
-          editing and nothing else on the system touched.
-        </p>
-        <p>
-          Updates are built in — an installed copy checks for a new release and
-          offers to install it.
+          has the two commands. Freezing the engine for those platforms is the
+          next step. The macOS builds are also unsigned, so Gatekeeper asks for
+          a right-click → Open the first time.
         </p>
       </section>
     </main>

@@ -48,23 +48,33 @@ jobs:
         # Intel build cross-compiles from macos-latest instead.
         # Rule 4: matrix keys use underscores; `matrix.rust-targets` parses
         # as a subtraction.
+        # `bundle_worker` decides whether the installer carries the frozen
+        # Python core, so that platform needs no Python installed. Windows
+        # only for now: PyInstaller cannot cross-compile, so the macos-x64
+        # row would need an x86_64 interpreter under Rosetta on an arm64
+        # runner -- buildable, but not verifiable by anyone here on real
+        # hardware, and an unverified 600 MB payload is worse than none.
         include:
           - platform: 'windows-latest'
             label: 'windows-x64'
             args: ''
             rust_targets: ''
+            bundle_worker: true
           - platform: 'ubuntu-22.04'
             label: 'linux-x64'
             args: ''
             rust_targets: ''
+            bundle_worker: false
           - platform: 'macos-latest'
             label: 'macos-arm64'
             args: '--target aarch64-apple-darwin'
             rust_targets: 'aarch64-apple-darwin'
+            bundle_worker: false
           - platform: 'macos-latest'
             label: 'macos-x64'
             args: '--target x86_64-apple-darwin'
             rust_targets: 'x86_64-apple-darwin'
+            bundle_worker: false
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
@@ -142,6 +152,56 @@ jobs:
 
       - run: npm ci
         working-directory: desktop
+
+      # ---- the frozen Python core, for platforms that ship it -------------
+      - name: Set up Python for the frozen worker
+        if: matrix.bundle_worker
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      # Verifying the bundle means loading BLIP, which is a ~1 GB download.
+      # Cached, it is seconds.
+      - name: Cache Hugging Face model
+        if: matrix.bundle_worker
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-blip-${{ runner.os }}
+
+      - name: Build the frozen worker
+        if: matrix.bundle_worker
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pip install --upgrade pip
+          # CPU wheel: the default one drags in the entire CUDA stack.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e .
+          pip install "pyinstaller>=6.10" onnxruntime
+          python scripts/build-worker.py 2>&1 | tee worker-build.log
+
+      - name: Surface worker build output
+        if: failure() && matrix.bundle_worker
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Worker build (${{ matrix.label }})" worker-build.log
+
+      # A frozen build that links is not a frozen build that works: excluding
+      # one torch submodule once left every caption path broken while the
+      # build reported success. This runs the real protocol over real pipes
+      # and loads the real model, so that cannot ship unnoticed.
+      - name: Verify the frozen worker
+        if: matrix.bundle_worker
+        shell: bash
+        run: |
+          set -o pipefail
+          python scripts/verify-worker.py 2>&1 | tee worker-verify.log
+
+      - name: Surface worker verification output
+        if: failure() && matrix.bundle_worker
+        shell: bash
+        run: bash scripts/ci-annotate.sh "Worker verify (${{ matrix.label }})" worker-verify.log
 
       # tauri-action collects whatever it finds in the bundle directories, and
       # `target/` comes back from the cache. A bundle left over from an

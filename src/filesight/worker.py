@@ -89,6 +89,27 @@ def log(message: str) -> None:
     print(f"[filesight.worker] {message}", file=sys.stderr, flush=True)
 
 
+def _log_cause(exc: BaseException) -> None:
+    """Log what an exception was raised *from*, and where.
+
+    Libraries that resolve classes lazily -- transformers above all -- catch
+    the real ImportError and re-raise a summary like "Could not import module
+    'BlipProcessor'". That summary names the symbol and hides the reason, so
+    a packaging problem and a corrupt download look identical. The chained
+    cause is where the answer actually is.
+    """
+    cause = exc.__cause__ or exc.__context__
+    seen = 0
+    while cause is not None and seen < 3:
+        log(f"  caused by {type(cause).__name__}: {cause}")
+        frames = traceback.extract_tb(cause.__traceback__)
+        if frames:
+            last = frames[-1]
+            log(f"  at {last.filename}:{last.lineno} in {last.name}")
+        cause = cause.__cause__ or cause.__context__
+        seen += 1
+
+
 class Worker:
     """Dispatches commands and owns the shared, lazily-loaded captioner."""
 
@@ -145,10 +166,12 @@ class Worker:
                 self._preloaded_backend_id = selection.actual_backend
         except Exception as exc:  # pragma: no cover - defensive
             log(f"preload caption backend failed: {exc}; trying PyTorch")
+            _log_cause(exc)
             try:
                 self.get_captioner(None)
             except Exception as inner:  # pragma: no cover
                 log(f"preload PyTorch also failed: {inner}")
+                _log_cause(inner)
         # Any DLL loaded on demand while the reader thread is blocked on
         # stdin can deadlock the Windows loader, so touch the ones the
         # benchmark command needs (psapi for peak RAM) up front too.

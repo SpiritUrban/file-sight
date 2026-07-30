@@ -6,6 +6,7 @@
 pub mod python;
 pub mod settings;
 pub mod worker;
+pub mod worker_program;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -16,12 +17,15 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use settings::AppSettings;
 use worker::{SharedWorker, WorkerEvent};
+use worker_program::WorkerProgram;
 
 pub struct AppState {
     pub worker: SharedWorker,
     pub config_dir: Mutex<PathBuf>,
     pub log_dir: Mutex<PathBuf>,
     pub repo_root: Mutex<Option<PathBuf>>,
+    /// Where the bundle's resources live; `None` when not running in Tauri.
+    pub resource_dir: Mutex<Option<PathBuf>>,
 }
 
 impl Default for AppState {
@@ -31,13 +35,18 @@ impl Default for AppState {
             config_dir: Mutex::new(PathBuf::from(".")),
             log_dir: Mutex::new(PathBuf::from(".")),
             repo_root: Mutex::new(None),
+            resource_dir: Mutex::new(None),
         }
     }
 }
 
 #[derive(Debug, Serialize)]
 pub struct EnvironmentStatus {
+    /// The interpreter, when one is in play. Kept for the Settings screen:
+    /// a bundled worker has no interpreter to report.
     pub python: python::PythonInfo,
+    /// What will actually be launched, and why.
+    pub worker_program: WorkerProgram,
     pub worker_running: bool,
     pub repo_root: Option<String>,
 }
@@ -76,21 +85,45 @@ fn detect_repo_root() -> Option<PathBuf> {
     None
 }
 
-#[tauri::command]
-fn get_environment_status(state: State<'_, AppState>) -> EnvironmentStatus {
+/// Resolve what to launch, from whatever the app currently knows.
+fn resolve_program(state: &AppState) -> WorkerProgram {
     let repo_root = state.repo_root.lock().ok().and_then(|r| r.clone());
+    let resource_dir = state.resource_dir.lock().ok().and_then(|r| r.clone());
     let configured = {
         let dir = state.config_dir.lock().unwrap().clone();
         settings::load(&settings::settings_file(&dir)).python_path
     };
-    let info = python::resolve(configured.as_deref(), repo_root.as_deref());
+    worker_program::resolve(
+        resource_dir.as_deref(),
+        configured.as_deref(),
+        repo_root.as_deref(),
+    )
+}
+
+#[tauri::command]
+fn get_environment_status(state: State<'_, AppState>) -> EnvironmentStatus {
+    let repo_root = state.repo_root.lock().ok().and_then(|r| r.clone());
+    let program = resolve_program(&state);
+    // A bundled worker carries its own interpreter, so there is nothing
+    // useful to say about Python; saying "not found" would read as a fault.
+    let python = program
+        .python
+        .clone()
+        .unwrap_or_else(|| python::PythonInfo {
+            executable: None,
+            source: python::PythonSource::NotFound,
+            version: None,
+            ok: program.ok,
+            message: Some("Not needed: the analysis worker is bundled.".to_string()),
+        });
     let worker_running = state
         .worker
         .lock()
         .map(|guard| guard.is_some())
         .unwrap_or(false);
     EnvironmentStatus {
-        python: info,
+        python,
+        worker_program: program,
         worker_running,
         repo_root: repo_root.map(|p| p.to_string_lossy().into_owned()),
     }
@@ -111,22 +144,21 @@ fn ensure_worker(app: &AppHandle, state: &State<'_, AppState>) -> Result<String,
         *guard = None;
     }
 
-    let repo_root = state.repo_root.lock().ok().and_then(|r| r.clone());
-    let configured = {
-        let dir = state.config_dir.lock().unwrap().clone();
-        settings::load(&settings::settings_file(&dir)).python_path
-    };
-    let info = python::resolve(configured.as_deref(), repo_root.as_deref());
-    let executable = info
-        .executable
-        .clone()
-        .ok_or_else(|| info.message.unwrap_or_else(|| "Python not found".into()))?;
+    let program = resolve_program(state);
+    if !program.ok {
+        return Err(program
+            .message
+            .clone()
+            .unwrap_or_else(|| "No analysis worker could be found.".into()));
+    }
+    let working_dir = program.working_dir.clone().map(PathBuf::from);
 
     let event_app = app.clone();
     let log_app = app.clone();
     let handle = worker::spawn(
-        &executable,
-        repo_root.as_deref(),
+        &program.program,
+        &program.args,
+        working_dir.as_deref(),
         move |event: WorkerEvent| {
             let _ = event_app.emit("worker-event", event);
         },
@@ -137,7 +169,8 @@ fn ensure_worker(app: &AppHandle, state: &State<'_, AppState>) -> Result<String,
         },
     )?;
 
-    log_line(state, &format!("worker started via {executable}"));
+    let executable = program.program.clone();
+    log_line(state, &format!("worker started: {}", program.describe()));
     *guard = Some(handle);
     Ok(executable)
 }
@@ -267,6 +300,9 @@ pub fn run() {
             }
             if let Ok(dir) = app.path().app_log_dir() {
                 *state.log_dir.lock().unwrap() = dir;
+            }
+            if let Ok(dir) = app.path().resource_dir() {
+                *state.resource_dir.lock().unwrap() = Some(dir);
             }
             *state.repo_root.lock().unwrap() = detect_repo_root();
 

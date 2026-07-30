@@ -1,8 +1,4 @@
-# FileSight — Windows packaging (iteration 6 status)
-
-This documents the packaging **plan and current status**. In this session
-the inference core with verified DirectML was delivered; the standalone
-bundling is the next step and is honestly marked as not-yet-done.
+# FileSight — Windows packaging
 
 ## Current status
 
@@ -13,29 +9,51 @@ bundling is the next step and is honestly marked as not-yet-done.
 | `onnxruntime-directml` install (Py 3.14) | Works (1.24.4) |
 | Backend diagnostics / benchmark | Done |
 | Report + UI backend metadata | Done |
-| Bundled Python worker (PyInstaller) | **Not yet** |
-| Bundled FFmpeg in installer | **Not yet** (auto-detected from folder, iter-5) |
+| **Bundled Python worker (PyInstaller)** | **Done, Windows** — `scripts/build-worker.py` |
+| **Worker resolution in Rust** | **Done** — `src-tauri/src/worker_program.rs` |
+| **Worker packaged into the installer** | **Done** — `tauri.windows.conf.json` |
+| Bundled FFmpeg in installer | Not done, and not planned: one-click download in the app avoids redistributing GPL builds |
 | ONNX caption model pack | **Not yet** (see model-quality-report.md) |
-| Offline NSIS installer | **Not yet** (dev/test installer exists from iter-5) |
+| Frozen worker for macOS / Linux | **Not yet** — PyInstaller cannot cross-compile |
 | Clean-machine offline smoke test | **Not yet** |
 
-The app still runs as in iteration 5 (external Python interpreter; FFmpeg
-auto-detected from PATH / project folder / explicit path).
+On Windows the installer now carries the analysis core, so no Python is
+needed. macOS and Linux builds still spawn an external interpreter.
 
-## Planned bundling (next step)
+## The worker bundle
 
-### Worker (PyInstaller, one-folder)
+`python scripts/build-worker.py` produces
+`desktop/src-tauri/resources/filesight-worker/` (~615 MB, one folder), and
+`tauri.windows.conf.json` maps it into the bundle as `filesight-worker`.
 
-`scripts/build-worker.ps1` (to be added): clean venv → install
-`requirements-worker.lock` → `pyinstaller` one-folder build of
-`filesight.worker`. One-folder is preferred over one-file for an ML worker
-(faster start, no giant temp extraction of onnxruntime/torch DLLs, fewer
-antivirus false positives). Output:
-`filesight-worker-x86_64-pc-windows-msvc/`.
+Choices worth keeping:
 
-Native DLLs to include explicitly: `onnxruntime*.dll`, `DirectML.dll`,
-D3D12/DXGI (system), VC++ runtime, torch DLLs, Pillow, tokenizers native.
-Each bundled native component's origin must be recorded here.
+* **one-folder, not one-file.** A one-file build unpacks hundreds of
+  megabytes of native libraries into temp on every start: slow, and a
+  reliable antivirus false positive.
+* **The model is not frozen in.** ~1 GB, versioned independently, and
+  already downloaded on demand into the Hugging Face cache.
+* **Do not exclude torch submodules.** `torch.distributed` was on the
+  exclude list because "captioning never touches it"; `torch.utils.data.
+  dataloader` imports it unconditionally, so transformers could not load any
+  model at all. The symptom was `Could not import module 'BlipProcessor'` --
+  a message naming a different package entirely. Trim the model, not torch.
+* **Licence texts are moved, never dropped.** torch ships 107 licence files
+  nested up to 144 characters deep, which breaks Windows' 260-character
+  limit. The build flattens them into `third-party-licenses/` with an
+  `INDEX.txt` recording each original path.
+
+### Verification
+
+`python scripts/verify-worker.py [--scan DIR]` speaks the real JSON-Lines
+protocol over real pipes: ping, environment probe, a backend self-test, and
+optionally a full scan. It exists because a frozen build that *links* is not
+a frozen build that *works* -- and because an earlier version of this check
+reported success while every caption path in the bundle was broken.
+
+Note that without `--preload` the worker deadlocks on Windows by design: the
+native runtimes cannot be imported once the reader thread is blocked in a
+stdin read. `--preload` is the default here for that reason.
 
 ### FFmpeg
 

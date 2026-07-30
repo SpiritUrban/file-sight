@@ -19,6 +19,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+# Freezing the worker into the desktop installer (scripts/build-worker.py).
+build = ["pyinstaller>=6.10"]
 # Exactly ONE of these onnxruntime wheels may be installed at a time
 # (they all ship the same top-level `onnxruntime` package).
 # DirectML (AMD / Intel on Windows) — also provides the CPU provider:

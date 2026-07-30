@@ -143,11 +143,18 @@ impl WorkerHandle {
 
 pub type SharedWorker = Arc<Mutex<Option<WorkerHandle>>>;
 
-/// Spawn `python -m filesight.worker` and pump its stdout/stderr.
+/// Spawn the analysis worker and pump its stdout/stderr.
+///
+/// The program and its arguments are decided by `worker_program::resolve`:
+/// this may be a frozen sidecar started with `--preload`, or an interpreter
+/// started with `-u -m filesight.worker --preload`. Keeping that decision
+/// out of here means the launch path is identical either way, so a bug can
+/// only be in the choice or in the process handling, never in both.
 ///
 /// `on_event` receives every parsed event; `on_log` receives stderr lines.
 pub fn spawn<F, L>(
     executable: &str,
+    args: &[String],
     working_dir: Option<&std::path::Path>,
     mut on_event: F,
     mut on_log: L,
@@ -158,14 +165,7 @@ where
 {
     let mut command = Command::new(executable);
     command
-        .arg("-u") // unbuffered: progress must arrive as it happens
-        .arg("-m")
-        .arg("filesight.worker")
-        // Load the model up front. Importing the torch/transformers C
-        // extensions *after* the worker starts serving a piped session
-        // deadlocks on Windows, so the model must be ready before the
-        // request loop begins.
-        .arg("--preload")
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -182,7 +182,7 @@ where
 
     let mut child = command
         .spawn()
-        .map_err(|err| format!("cannot start the Python worker ({executable}): {err}"))?;
+        .map_err(|err| format!("cannot start the analysis worker ({executable}): {err}"))?;
 
     let stdout = child
         .stdout

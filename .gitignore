@@ -32,6 +32,11 @@ desktop/src-tauri/target/
 desktop/src-tauri/gen/
 desktop/src-tauri/app-icon.png
 
+# The frozen Python worker: ~600 MB, built by scripts/build-worker.py and by
+# CI before bundling. It is a build output, not a source.
+desktop/src-tauri/resources/
+build/pyinstaller/
+
 # Updater signing keys. Losing them is unrecoverable (every installed copy
 # stops accepting updates); committing them is worse. They live only on the
 # owner's machine and in GitHub Actions secrets.
