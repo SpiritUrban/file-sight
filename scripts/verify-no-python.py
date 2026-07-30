@@ -62,6 +62,15 @@ def find_worker(root: Path) -> Path | None:
 
 
 def main() -> int:
+    # Windows consoles default to cp1252, and the worker's stderr contains
+    # characters it cannot encode; printing one must never be what fails a
+    # check that has otherwise passed.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # pragma: no cover
+            pass
+
     if len(sys.argv) < 2:
         print(__doc__, file=sys.stderr)
         return 2

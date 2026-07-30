@@ -113,7 +113,24 @@ class Worker:
             self.process.kill()
 
 
+def _make_output_unbreakable() -> None:
+    """Never let printing a log line be what fails the check.
+
+    On a Windows CI runner stdout defaults to cp1252, and the worker's stderr
+    carries characters it cannot represent -- onnxruntime writes wide
+    characters, Hugging Face writes typographic quotes. Printing them raised
+    UnicodeEncodeError and failed the whole verification *after* every real
+    test had passed, which reads as "the bundle is broken" when it is not.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):  # pragma: no cover - old streams
+            pass
+
+
 def main() -> int:
+    _make_output_unbreakable()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", nargs="?", default=str(DEFAULT))
     # --preload is the default because it is what the app does, and because

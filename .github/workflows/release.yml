@@ -171,6 +171,7 @@ jobs:
           key: hf-blip-${{ runner.os }}
 
       - name: Build the frozen worker
+        id: build_worker
         if: matrix.bundle_worker
         shell: bash
         run: |
@@ -182,8 +183,12 @@ jobs:
           pip install "pyinstaller>=6.10" onnxruntime
           python scripts/build-worker.py 2>&1 | tee worker-build.log
 
+      # Scoped to THIS step. A bare `failure()` fires when any earlier step
+      # failed, and then reports "worker-build.log is missing or empty" --
+      # an error annotation about a step that never ran, pointing at the
+      # wrong place entirely.
       - name: Surface worker build output
-        if: failure() && matrix.bundle_worker
+        if: failure() && steps.build_worker.conclusion == 'failure'
         shell: bash
         run: bash scripts/ci-annotate.sh "Worker build (${{ matrix.label }})" worker-build.log
 
@@ -192,6 +197,7 @@ jobs:
       # build reported success. This runs the real protocol over real pipes
       # and loads the real model, so that cannot ship unnoticed.
       - name: Verify the frozen worker
+        id: verify_worker
         if: matrix.bundle_worker
         shell: bash
         run: |
@@ -199,7 +205,7 @@ jobs:
           python scripts/verify-worker.py 2>&1 | tee worker-verify.log
 
       - name: Surface worker verification output
-        if: failure() && matrix.bundle_worker
+        if: failure() && steps.verify_worker.conclusion == 'failure'
         shell: bash
         run: bash scripts/ci-annotate.sh "Worker verify (${{ matrix.label }})" worker-verify.log
 
@@ -219,6 +225,7 @@ jobs:
       # The action composes `<tauriScript> build -- <args>`; with
       # tauriScript = 'npm run tauri' that is the line below, verbatim.
       - name: Build desktop app (readable failure)
+        id: build_app
         shell: bash
         working-directory: desktop
         run: |
@@ -228,7 +235,7 @@ jobs:
       # Rule 21a: the matrix label goes in the title, or four annotations are
       # indistinguishable.
       - name: Surface build output
-        if: failure()
+        if: failure() && steps.build_app.conclusion == 'failure'
         shell: bash
         run: bash scripts/ci-annotate.sh "Build output (${{ matrix.label }})" build.log
 
