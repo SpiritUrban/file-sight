@@ -16,6 +16,8 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
   const profiles = useAppStore((s) => s.profiles);
   const uiState = useAppStore((s) => s.uiState);
   const startScan = useAppStore((s) => s.startScan);
+  const regenerateNames = useAppStore((s) => s.regenerateNames);
+  const report = useAppStore((s) => s.report);
   const cancelScan = useAppStore((s) => s.cancelScan);
 
   const busy = isBusy(uiState);
@@ -86,7 +88,16 @@ export function Toolbar({ onChooseFolder, onOpenSettings }: ToolbarProps) {
             className="field"
             value={options.profile}
             disabled={busy}
-            onChange={(event) => setOptions({ profile: event.target.value })}
+            onChange={(event) => {
+              const profile = event.target.value;
+              setOptions({ profile });
+              // A profile is a naming template, so picking one has to change
+              // the names that are on screen. Without this it only affected
+              // the *next* scan, and the dropdown looked broken: the whole
+              // machinery existed (the worker command, the store action, a
+              // test) with nothing wired to it.
+              if (report) void regenerateNames(profile);
+            }}
           >
             {profiles.length === 0 ? (
               <option value={options.profile}>{options.profile}</option>

@@ -15,6 +15,7 @@ const COLUMNS: Array<{ key: SortKey; label: string; className?: string }> = [
 ];
 
 function StatusBadge({ status }: { status: ScanFileEntry["status"] }) {
+  const { t } = useTranslation();
   const styles: Record<string, string> = {
     success: "bg-emerald-100 text-emerald-800",
     failed: "bg-red-100 text-red-800",
@@ -22,7 +23,7 @@ function StatusBadge({ status }: { status: ScanFileEntry["status"] }) {
   };
   return (
     <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${styles[status]}`}>
-      {status}
+      {t(status)}
     </span>
   );
 }

@@ -88,13 +88,13 @@ export function FilterBar() {
       </div>
 
       <button type="button" className="btn-secondary" onClick={() => setVisibleEnabled(true)}>
-        Enable visible
+        {t("Enable visible")}
       </button>
       <button type="button" className="btn-secondary" onClick={() => setVisibleEnabled(false)}>
-        Disable visible
+        {t("Disable visible")}
       </button>
       <button type="button" className="btn-secondary" onClick={resetSuggestedNames}>
-        Reset names
+        {t("Reset names")}
       </button>
     </div>
   );

@@ -26,6 +26,36 @@ export type { Language };
 
 /** Ukrainian only: English comes from the keys themselves. */
 const UK: Record<string, string> = {
+  // --- table ---------------------------------------------------------------
+  "Original name": "Стара назва",
+  "Suggested name": "Запропонована назва",
+  Type: "Тип",
+  Status: "Статус",
+  "Sort by {column}": "Сортувати за: {column}",
+  "Rename enabled": "Перейменування увімкнено",
+  Preview: "Прев'ю",
+  "Analyzed media files and their suggested names":
+    "Проаналізовані файли та запропоновані для них назви",
+  "Select a file to see its details.": "Виберіть файл, щоб побачити деталі.",
+  "Enable visible": "Увімкнути видимі",
+  "Disable visible": "Вимкнути видимі",
+  "Reset names": "Скинути назви",
+  success: "успішно",
+  failed: "помилка",
+  skipped: "пропущено",
+  image: "зображення",
+  video: "відео",
+  yes: "так",
+  no: "ні",
+  "File details": "Деталі файлу",
+  "Technical details": "Технічні деталі",
+  "Hide technical details": "Сховати технічні деталі",
+  "Analysis in progress": "Триває аналіз",
+  "Loading the model": "Завантаження моделі",
+  "Current file progress": "Прогрес поточного файлу",
+  "Preparing…": "Підготовка…",
+  "Analyzing…": "Аналіз…",
+
   // --- progress and filters ----------------------------------------------
   Working: "Робота",
   "{elapsed} elapsed": "минуло {elapsed}",

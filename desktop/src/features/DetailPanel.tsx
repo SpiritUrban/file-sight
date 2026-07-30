@@ -69,7 +69,7 @@ export function DetailPanel() {
   if (!entry) {
     return (
       <aside className="panel w-80 shrink-0 p-4 text-sm text-slate-500">
-        Select a file to see its details.
+        {t("Select a file to see its details.")}
       </aside>
     );
   }

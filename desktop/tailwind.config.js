@@ -13,6 +13,8 @@
  * `<alpha-value>` requires the variables to hold bare `R G B` channels, which
  * is why they are not written as hex.
  */
+const SHADES = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900];
+
 const ramp = (name, shades) =>
   Object.fromEntries(
     shades.map((shade) => [shade, `rgb(var(--c-${name}-${shade}) / <alpha-value>)`]),
@@ -24,12 +26,18 @@ export default {
   theme: {
     extend: {
       colors: {
-        slate: ramp("slate", [50, 100, 200, 300, 400, 500, 600, 700, 800, 900]),
-        red: ramp("red", [50, 200, 300, 500, 600, 700, 800, 900]),
-        amber: ramp("amber", [300, 500, 700, 800, 900]),
-        emerald: ramp("emerald", [500, 700, 800]),
-        indigo: ramp("indigo", [200, 400, 500, 800, 900]),
-        blue: ramp("blue", [500, 600, 700, 800]),
+        // Every shade, not just the ones in use today. Mapping only the
+        // shades a grep found left `bg-emerald-100` on Tailwind's default
+        // light green while `text-emerald-800` followed the theme: light on
+        // light, unreadable, and invisible until someone looked at a status
+        // badge. A partial ramp is a trap for the next person too, because
+        // the class that breaks is the one they just typed.
+        slate: ramp("slate", SHADES),
+        red: ramp("red", SHADES),
+        amber: ramp("amber", SHADES),
+        emerald: ramp("emerald", SHADES),
+        indigo: ramp("indigo", SHADES),
+        blue: ramp("blue", SHADES),
         // Named for the job rather than a shade: places that must be a solid
         // surface in both themes, where a ramp position would be a guess.
         surface: "rgb(var(--c-surface) / <alpha-value>)",
