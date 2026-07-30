@@ -36,3 +36,20 @@ tauri-plugin-process = "2"
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
+
+# Debug builds ran the machine out of memory. Not out of RAM -- out of
+# Windows' commit limit, which refuses allocations while physical memory still
+# looks free. `rustc` then dies mid-write, and the truncated artifacts it
+# leaves behind resurface on the next build as nonsense about macros
+# ("import resolution is stuck"), which sends you looking in the wrong place.
+#
+# Tauri pulls in roughly 400 crates, and `cargo` builds them with full debug
+# info by default, four at a time. Nobody steps through `tokio` with a
+# debugger: dropping their debug info is the single biggest saving available,
+# and it costs nothing anyone would notice.
+[profile.dev]
+# Line tables only for our own code: enough for a readable backtrace.
+debug = 1
+
+[profile.dev.package."*"]
+debug = false
