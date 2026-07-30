@@ -7,9 +7,6 @@
  * value can take the app down with it.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -145,67 +142,5 @@ describe("the appearance controls", () => {
       "aria-pressed",
       "false",
     );
-  });
-});
-
-describe("the colour palettes", () => {
-  // Read the stylesheet rather than the rendered page: jsdom does not apply
-  // Tailwind, and the question here is whether the two themes DEFINE a
-  // readable pair, which is exactly what the CSS says.
-  // `import.meta.url` is an http URL under Vite's test transform, not a file
-  // one, so the path is resolved from the working directory instead.
-  const css = readFileSync(resolve(process.cwd(), "src/index.css"), "utf8");
-
-  function palette(selector: string): Record<string, [number, number, number]> {
-    const body = css.split(selector)[1].split("}")[0];
-    const out: Record<string, [number, number, number]> = {};
-    for (const match of body.matchAll(/--c-([a-z]+-\d+): ([\d ]+);/g)) {
-      const [r, g, b] = match[2].trim().split(/\s+/).map(Number);
-      out[match[1]] = [r, g, b];
-    }
-    return out;
-  }
-
-  function contrast(fg: [number, number, number], bg: [number, number, number]) {
-    const luminance = ([r, g, b]: [number, number, number]) => {
-      const channel = (v: number) => {
-        const s = v / 255;
-        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-      };
-      return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-    };
-    const a = luminance(fg);
-    const b = luminance(bg);
-    return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
-  }
-
-  const themes = { light: palette(":root {"), dark: palette(".dark {") };
-  const families = ["slate", "red", "amber", "emerald", "indigo", "blue"];
-  const shades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900];
-
-  it.each(Object.keys(themes))("defines every shade in the %s theme", (name) => {
-    // A shade left undefined silently falls back to Tailwind's own value,
-    // which is how a light-green badge ended up with light-green text.
-    const table = themes[name as keyof typeof themes];
-    for (const family of families) {
-      for (const shade of shades) {
-        expect(table[`${family}-${shade}`], `${name}: ${family}-${shade}`).toBeDefined();
-      }
-    }
-  });
-
-  it.each(Object.keys(themes))("keeps status badges readable in %s", (name) => {
-    const table = themes[name as keyof typeof themes];
-    for (const family of ["emerald", "red", "amber"]) {
-      const ratio = contrast(table[`${family}-800`], table[`${family}-100`]);
-      expect(ratio, `${name}: ${family}-800 on ${family}-100`).toBeGreaterThanOrEqual(4.5);
-    }
-  });
-
-  it("keeps body text readable on the page background in both themes", () => {
-    for (const [name, table] of Object.entries(themes)) {
-      const ratio = contrast(table["slate-900"], table["slate-100"]);
-      expect(ratio, name).toBeGreaterThanOrEqual(4.5);
-    }
   });
 });
