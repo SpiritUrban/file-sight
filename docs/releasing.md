@@ -163,6 +163,21 @@ touches `site/**`.
 
 ---
 
+## A red job whose work actually succeeded
+
+Seen on `macos-x64` during the dry run: every step green, including
+`Build desktop app` and `Build, sign and upload`, and then the job went red
+on `Post Run actions/setup-node@v4`. The annotation is a .NET stack trace
+entirely inside `GitHub.Runner.*` — the runner crashed flushing its own log
+file at job completion. Nothing to do with this project, and re-running the
+job is the only response.
+
+Read the **step list** before reading the error: if the failing steps are
+`Set up job`, `Post Run ...` or `Complete job`, the failure is the runner's,
+not the build's. `deploy-site` is deliberately tolerant of this
+(`!cancelled()` rather than requiring every matrix job to succeed), because
+the assets are already uploaded by the time those steps run.
+
 ## Reading a failure
 
 | Duration | Where to look |

@@ -213,7 +213,20 @@ jobs:
     # published to build a manifest from, and running it would overwrite the
     # live manifest with an empty one. The consequence to remember is that a
     # green dry run says "the builds are fine", not "the release will pass".
-    if: startsWith(github.ref, 'refs/tags/')
+    #
+    # `!cancelled()` instead of the default "all of `needs` succeeded",
+    # because a matrix job can go red AFTER its assets are uploaded. Observed
+    # for real on macos-x64: every step succeeded, including sign-and-upload,
+    # and then the runner itself crashed flushing its own log
+    # (System.IO.IOException inside GitHub.Runner.Common.PagingLogger). With
+    # the default condition that flake silently leaves the site describing
+    # the previous release.
+    #
+    # This does not let a broken release through: pages.yml refuses to
+    # publish a manifest with zero assets for a tag, so a genuine
+    # all-platforms failure still fails loudly, while a partial release
+    # publishes exactly what exists.
+    if: ${{ !cancelled() && startsWith(github.ref, 'refs/tags/') }}
     permissions:
       contents: read
       pages: write
