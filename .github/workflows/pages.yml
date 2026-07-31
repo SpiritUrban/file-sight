@@ -102,3 +102,39 @@ jobs:
           path: ./site
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      # `deploy-pages` reporting success is not the same as the site serving
+      # what was just built, and the difference is invisible: a green run, a
+      # correct manifest in the log, and a live page still describing the
+      # previous release. That happened here -- ten hours after a successful
+      # v0.6.4 deployment the site was still serving v0.6.3 -- and the only
+      # reason anybody noticed was a manual check.
+      #
+      # So the run now asks the live URL what it actually serves. Some delay
+      # is normal, hence the retries; a page that never catches up is a
+      # failure and should look like one.
+      - name: Verify the live site serves this build
+        shell: bash
+        env:
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -uo pipefail
+          expected=$(node -p "require('./site/download-manifest.json').version")
+          url="${PAGE_URL%/}/download-manifest.json"
+          echo "expecting version ${expected} at ${url}"
+
+          for attempt in $(seq 1 12); do
+            # A cache buster on every attempt: the question is what the origin
+            # holds, not what an edge cached a minute ago.
+            live=$(curl -sS -L "${url}?check=${GITHUB_RUN_ID}-${attempt}" \
+                   | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version" 2>/dev/null || echo "unreadable")
+            if [ "$live" = "$expected" ]; then
+              echo "live after ${attempt} attempt(s): ${live}"
+              exit 0
+            fi
+            echo "  attempt ${attempt}: live is ${live}, waiting"
+            sleep 15
+          done
+
+          echo "::error title=Site did not go live::The deployment reported success, but ${url} still serves ${live} instead of ${expected}. The release itself is fine; re-run this workflow, and if that does not help the Pages deployment is not being activated."
+          exit 1

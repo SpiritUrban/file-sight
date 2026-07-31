@@ -157,9 +157,30 @@ curl -s -L "https://github.com/SpiritUrban/file-sight/releases/download/<TAG>/la
   | python -c "import json,sys; d=json.load(sys.stdin); print(len(d['platforms']), sorted(d['platforms']))"
 ```
 
-If the site's content does not go live even though `deploy-site` reported
-success, re-run `Actions → Deploy site → Run workflow`, or push anything that
-touches `site/**`.
+### When the deploy is green but the site is stale
+
+Observed on v0.6.4, and worth writing down because everything looks correct:
+
+* the job's `::notice` said the manifest was generated for the right tag
+  (`ref=v0.6.4 -> tag v0.6.4, version 0.6.4, 8 assets`);
+* the Deployments API showed the tag's deployment `success` and **active**,
+  and the previous one marked `inactive` at the same second;
+* the live URL kept serving the previous release's manifest — ten hours
+  later, with `Last-Modified` still pointing at the earlier deployment.
+
+A CDN TTL was the obvious explanation and it is wrong: `Cache-Control` on
+Pages is ten minutes, and this outlasted it by two orders of magnitude. The
+cause is still unknown. What is now certain is that `deploy-pages` reporting
+success does not mean the site serves what was built.
+
+`pages.yml` therefore ends by asking the live URL what it actually serves and
+failing if it never catches up. That does not fix the underlying problem, but
+it stops a green run from hiding it.
+
+If it happens: the release itself is unaffected — installers, `latest.json`
+and the updater all come from the GitHub release, not from Pages. Re-run
+`Actions → Deploy site → Run workflow`, or push anything matching the
+workflow's `paths` filter.
 
 ---
 
